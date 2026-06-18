@@ -6,7 +6,7 @@ import { createMapStore } from "../mapStore.js";
 const setData = vi.fn();
 const addSource = vi.fn();
 const addLayer = vi.fn();
-const getSource = vi.fn(() => ({ setData }));
+const getSource = vi.fn((id: string) => (id === "features" ? { setData } : undefined));
 const on = vi.fn((event: string, cb: () => void) => {
   if (event === "load") cb();
 });
@@ -30,6 +30,7 @@ beforeEach(() => {
   setData.mockClear();
   addSource.mockClear();
   addLayer.mockClear();
+  getSource.mockClear();
   on.mockClear();
 });
 
@@ -41,7 +42,10 @@ describe("MapView", () => {
     const mapStore = createMapStore(store);
     render(MapView, { mapStore, onready: () => {} });
 
-    expect(addSource).toHaveBeenCalled();
+    expect(addSource).toHaveBeenCalledWith(
+      "features",
+      expect.objectContaining({ type: "geojson" }),
+    );
 
     store.create(ME, {
       kind: "marker",
@@ -57,6 +61,6 @@ describe("MapView", () => {
     const mapStore = createMapStore(store);
     const onready = vi.fn();
     render(MapView, { mapStore, onready });
-    expect(onready).toHaveBeenCalled();
+    expect(onready).toHaveBeenCalledWith(expect.anything());
   });
 });

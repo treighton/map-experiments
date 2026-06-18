@@ -76,6 +76,8 @@
   });
 
   onDestroy(() => {
+    // Unsubscribe our own features subscription and tear down the map. We do NOT
+    // call mapStore.destroy() — the app owns the mapStore lifetime (see mapStore.ts).
     unsub?.();
     map?.remove();
   });
