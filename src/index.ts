@@ -28,4 +28,6 @@ export {
   type Connection,
   type InMemoryConnection,
 } from "./connection.js";
-export { SyncSession } from "./syncSession.js";
+export { SyncSession, type SyncSessionOptions } from "./syncSession.js";
+export { SyncServer } from "./syncServer.js";
+export { SyncClient, type SyncClientDeps } from "./syncClient.js";
