@@ -1,9 +1,5 @@
 import { newId as defaultNewId } from "./uuid.js";
-
-export interface Identity {
-  callsign: string;
-  deviceId: string;
-}
+import type { Identity } from "./types.js";
 
 /** Minimal key-value interface satisfied by Web Storage (localStorage). */
 export interface KeyValueStore {

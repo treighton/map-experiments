@@ -4,14 +4,10 @@ import type {
   Geometry,
   FeatureCollection,
   Digest,
+  Identity,
 } from "./types.js";
 import { newId as defaultNewId } from "./uuid.js";
 import { mergeAll } from "./merge.js";
-
-export interface Identity {
-  callsign: string;
-  deviceId: string;
-}
 
 export interface CreateInput {
   kind: FeatureKind;

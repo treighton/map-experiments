@@ -3,7 +3,6 @@ export { newId } from "./uuid.js";
 export { mergeFeature, mergeAll } from "./merge.js";
 export {
   FeatureStore,
-  type Identity,
   type CreateInput,
   type EditableFields,
   type StoreDeps,

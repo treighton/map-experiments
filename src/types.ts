@@ -30,3 +30,8 @@ export interface FeatureCollection {
 
 /** Map of feature id -> updatedAt, exchanged during sync reconcile. */
 export type Digest = Record<string, number>;
+
+export interface Identity {
+  callsign: string;
+  deviceId: string;
+}

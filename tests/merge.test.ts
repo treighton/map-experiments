@@ -52,6 +52,13 @@ describe("mergeFeature", () => {
     const edit = feat({ updatedAt: 200, deleted: false });
     expect(mergeFeature(del, edit).properties.deleted).toBe(false);
   });
+
+  it("is commutative even when updatedAt and authorDeviceId are equal", () => {
+    const a = feat({ updatedAt: 100, authorDeviceId: "dev-x", label: "alpha" });
+    const b = feat({ updatedAt: 100, authorDeviceId: "dev-x", label: "beta" });
+    // Same winner regardless of argument order — true commutativity.
+    expect(mergeFeature(a, b)).toEqual(mergeFeature(b, a));
+  });
 });
 
 describe("mergeAll", () => {
