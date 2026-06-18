@@ -16,3 +16,19 @@ export function mergeFeature(a: SarFeature, b: SarFeature): SarFeature {
   }
   return pa.authorDeviceId >= pb.authorDeviceId ? a : b;
 }
+
+/**
+ * Merge incoming features into a copy of the local map (id -> feature).
+ * Pure: returns a new Map, never mutates the input.
+ */
+export function mergeAll(
+  local: ReadonlyMap<string, SarFeature>,
+  incoming: readonly SarFeature[],
+): Map<string, SarFeature> {
+  const out = new Map(local);
+  for (const f of incoming) {
+    const existing = out.get(f.properties.id);
+    out.set(f.properties.id, existing ? mergeFeature(existing, f) : f);
+  }
+  return out;
+}

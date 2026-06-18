@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mergeFeature } from "../src/merge.js";
+import { mergeFeature, mergeAll } from "../src/merge.js";
 import type { SarFeature } from "../src/types.js";
 
 function feat(over: Partial<SarFeature["properties"]> = {}): SarFeature {
@@ -51,5 +51,35 @@ describe("mergeFeature", () => {
     const del = feat({ updatedAt: 100, deleted: true });
     const edit = feat({ updatedAt: 200, deleted: false });
     expect(mergeFeature(del, edit).properties.deleted).toBe(false);
+  });
+});
+
+describe("mergeAll", () => {
+  it("unions disjoint feature sets", () => {
+    const local = new Map([["f1", feat({ id: "f1" })]]);
+    const incoming = [feat({ id: "f2" })];
+    const out = mergeAll(local, incoming);
+    expect([...out.keys()].sort()).toEqual(["f1", "f2"]);
+  });
+
+  it("resolves overlapping ids by LWW", () => {
+    const local = new Map([["f1", feat({ id: "f1", updatedAt: 100, label: "old" })]]);
+    const incoming = [feat({ id: "f1", updatedAt: 200, label: "new" })];
+    const out = mergeAll(local, incoming);
+    expect(out.get("f1")!.properties.label).toBe("new");
+  });
+
+  it("is commutative on final state regardless of input order", () => {
+    const x = feat({ id: "f1", updatedAt: 100 });
+    const y = feat({ id: "f1", updatedAt: 200 });
+    const ab = mergeAll(new Map([["f1", x]]), [y]);
+    const ba = mergeAll(new Map([["f1", y]]), [x]);
+    expect(ab.get("f1")).toEqual(ba.get("f1"));
+  });
+
+  it("does not mutate the input map", () => {
+    const local = new Map([["f1", feat({ id: "f1", updatedAt: 100 })]]);
+    mergeAll(local, [feat({ id: "f1", updatedAt: 200 })]);
+    expect(local.get("f1")!.properties.updatedAt).toBe(100);
   });
 });
