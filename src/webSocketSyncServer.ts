@@ -28,11 +28,24 @@ export class WebSocketSyncServer {
     return new Promise((resolve, reject) => {
       const wss = new WebSocketServer({ port: this.opts.port });
       this.wss = wss;
+      let listening = false;
       wss.on("connection", (socket: WebSocket) => {
         this.syncServer.accept(new NodeWebSocketConnection(socket));
       });
-      wss.on("listening", () => resolve());
-      wss.on("error", (err) => reject(err));
+      wss.on("listening", () => {
+        listening = true;
+        resolve();
+      });
+      wss.on("error", (err) => {
+        if (listening) {
+          // A runtime error after the server is up: log it (the start promise
+          // has already resolved, so rejecting it would be a silent no-op).
+          console.error("WebSocketSyncServer error:", err);
+        } else {
+          // A listen failure (e.g. EADDRINUSE): surface it to the caller.
+          reject(err);
+        }
+      });
     });
   }
 
