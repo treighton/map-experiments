@@ -381,4 +381,30 @@ describe("FeatureStore onChange", () => {
     expect(seen).toEqual([["id-1"]]);
     expect(store.getRaw(f.properties.id)).toBeDefined();
   });
+
+  it("a second remove on an already-deleted feature does not notify", () => {
+    let t = 1000;
+    const store = new FeatureStore({ now: () => t, newId: () => "id-1" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    t = 2000;
+    store.remove(ME, "id-1");
+    const seen: string[][] = [];
+    store.onChange((ids) => seen.push([...ids]));
+    t = 3000;
+    store.remove(ME, "id-1"); // no-op: already deleted
+    expect(seen).toEqual([]);
+  });
+
+  it("applyDelta with an empty array does not notify", () => {
+    const store = makeStore();
+    const seen: string[][] = [];
+    store.onChange((ids) => seen.push([...ids]));
+    store.applyDelta([]);
+    expect(seen).toEqual([]);
+  });
 });

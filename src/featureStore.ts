@@ -162,14 +162,22 @@ export class FeatureStore {
 
   /** Merge externally-received features (including tombstones) via LWW. No ownership check: inbound features are authored by other devices. */
   applyDelta(incoming: readonly SarFeature[]): void {
+    if (incoming.length === 0) return;
     this.features = mergeAll(this.features, incoming);
     this.notify(incoming.map((f) => f.properties.id));
   }
 
   /**
    * Subscribe to mutations. The listener is called after each create/update/
-   * remove/applyDelta with the ids that changed, and can read the new state via
+   * remove/applyDelta with the affected ids, and can read the new state via
    * getRaw. Returns an unsubscribe function.
+   *
+   * Notes:
+   * - For applyDelta the listener receives every incoming id, including ones
+   *   where LWW kept the local version (a harmless no-op for idempotent writers).
+   * - Listeners are called synchronously and MUST NOT call mutating methods on
+   *   this store (create/update/remove/applyDelta); doing so causes reentrant
+   *   notification.
    */
   onChange(listener: ChangeListener): () => void {
     this.listeners.add(listener);
