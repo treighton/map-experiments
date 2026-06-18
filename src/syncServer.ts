@@ -44,7 +44,9 @@ export class SyncServer {
 
   /** Forward a live inbound delta to every session except its origin. */
   private relayFrom(origin: SyncSession, features: SarFeature[]): void {
-    for (const session of this.sessions) {
+    // Snapshot: relay() may, on a real transport, synchronously close a dead
+    // sibling and remove it from this.sessions mid-iteration.
+    for (const session of [...this.sessions]) {
       if (session !== origin) session.relay(features);
     }
   }
