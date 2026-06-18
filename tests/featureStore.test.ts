@@ -282,3 +282,129 @@ describe("FeatureStore sync API", () => {
     expect(store.list()).toHaveLength(0);
   });
 });
+
+describe("FeatureStore onChange", () => {
+  it("notifies with the new id on create", () => {
+    const store = makeStore();
+    const seen: string[][] = [];
+    store.onChange((ids) => seen.push([...ids]));
+    const f = store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    expect(seen).toEqual([[f.properties.id]]);
+  });
+
+  it("notifies on update and remove with the feature id", () => {
+    const store = new FeatureStore({ now: () => 1000, newId: () => "id-1" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    const seen: string[][] = [];
+    store.onChange((ids) => seen.push([...ids]));
+    store.update(ME, "id-1", { label: "x" });
+    store.remove(ME, "id-1");
+    expect(seen).toEqual([["id-1"], ["id-1"]]);
+  });
+
+  it("notifies applyDelta with the incoming ids", () => {
+    const store = makeStore();
+    const seen: string[][] = [];
+    store.onChange((ids) => seen.push([...ids]));
+    store.applyDelta([
+      {
+        type: "Feature",
+        geometry: { type: "Point", coordinates: [0, 0] },
+        properties: {
+          id: "ext",
+          author: "Sue",
+          authorDeviceId: "dev-other",
+          createdAt: 1,
+          updatedAt: 1,
+          deleted: false,
+          kind: "marker",
+          label: "",
+          color: "",
+        },
+      },
+    ]);
+    expect(seen).toEqual([["ext"]]);
+  });
+
+  it("listener sees post-mutation state via getRaw", () => {
+    const store = new FeatureStore({ now: () => 1000, newId: () => "id-1" });
+    let labelAtNotify = "";
+    store.onChange(() => {
+      labelAtNotify = store.getRaw("id-1")?.properties.label ?? "";
+    });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "tent",
+      color: "",
+    });
+    expect(labelAtNotify).toBe("tent");
+  });
+
+  it("unsubscribe stops notifications", () => {
+    const store = makeStore();
+    const seen: string[][] = [];
+    const off = store.onChange((ids) => seen.push([...ids]));
+    off();
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    expect(seen).toEqual([]);
+  });
+
+  it("a throwing listener does not break other listeners or the mutation", () => {
+    const store = new FeatureStore({ now: () => 1000, newId: () => "id-1" });
+    const seen: string[][] = [];
+    store.onChange(() => {
+      throw new Error("boom");
+    });
+    store.onChange((ids) => seen.push([...ids]));
+    const f = store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    expect(seen).toEqual([["id-1"]]);
+    expect(store.getRaw(f.properties.id)).toBeDefined();
+  });
+
+  it("a second remove on an already-deleted feature does not notify", () => {
+    let t = 1000;
+    const store = new FeatureStore({ now: () => t, newId: () => "id-1" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    t = 2000;
+    store.remove(ME, "id-1");
+    const seen: string[][] = [];
+    store.onChange((ids) => seen.push([...ids]));
+    t = 3000;
+    store.remove(ME, "id-1"); // no-op: already deleted
+    expect(seen).toEqual([]);
+  });
+
+  it("applyDelta with an empty array does not notify", () => {
+    const store = makeStore();
+    const seen: string[][] = [];
+    store.onChange((ids) => seen.push([...ids]));
+    store.applyDelta([]);
+    expect(seen).toEqual([]);
+  });
+});

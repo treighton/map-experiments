@@ -27,6 +27,8 @@ export type EditableFields = Partial<
   }
 >;
 
+export type ChangeListener = (changedIds: readonly string[]) => void;
+
 /**
  * In-memory store of map features, keyed by feature id.
  *
@@ -43,6 +45,7 @@ export class FeatureStore {
   private features = new Map<string, SarFeature>();
   private now: () => number;
   private newId: () => string;
+  private listeners = new Set<ChangeListener>();
 
   constructor(deps: StoreDeps = {}) {
     this.now = deps.now ?? (() => Date.now());
@@ -67,6 +70,7 @@ export class FeatureStore {
       },
     };
     this.features.set(f.properties.id, f);
+    this.notify([f.properties.id]);
     return f;
   }
 
@@ -118,6 +122,7 @@ export class FeatureStore {
       },
     };
     this.features.set(id, next);
+    this.notify([id]);
     return next;
   }
 
@@ -134,6 +139,7 @@ export class FeatureStore {
       },
     };
     this.features.set(id, next);
+    this.notify([id]);
     return next;
   }
 
@@ -156,6 +162,36 @@ export class FeatureStore {
 
   /** Merge externally-received features (including tombstones) via LWW. No ownership check: inbound features are authored by other devices. */
   applyDelta(incoming: readonly SarFeature[]): void {
+    if (incoming.length === 0) return;
     this.features = mergeAll(this.features, incoming);
+    this.notify(incoming.map((f) => f.properties.id));
+  }
+
+  /**
+   * Subscribe to mutations. The listener is called after each create/update/
+   * remove/applyDelta with the affected ids, and can read the new state via
+   * getRaw. Returns an unsubscribe function.
+   *
+   * Notes:
+   * - For applyDelta the listener receives every incoming id, including ones
+   *   where LWW kept the local version (a harmless no-op for idempotent writers).
+   * - Listeners are called synchronously and MUST NOT call mutating methods on
+   *   this store (create/update/remove/applyDelta); doing so causes reentrant
+   *   notification.
+   */
+  onChange(listener: ChangeListener): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
+
+  /** Notify listeners. One throwing listener must not break others or the store. */
+  private notify(changedIds: readonly string[]): void {
+    for (const listener of this.listeners) {
+      try {
+        listener(changedIds);
+      } catch (err) {
+        console.error("FeatureStore change listener threw:", err);
+      }
+    }
   }
 }
