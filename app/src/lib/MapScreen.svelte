@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { onMount } from "svelte";
   import MapView from "./MapView.svelte";
   import DrawToolbar from "./DrawToolbar.svelte";
   import StatusChip from "./StatusChip.svelte";
@@ -9,12 +10,22 @@
   let { ctx, identity }: { ctx: AppContext; identity: Identity } = $props();
 
   let map = $state<maplibregl.Map | null>(null);
+
+  // Heuristic for v1: navigator.onLine reflects the network interface, not the
+  // actual WebSocket/relay state. Good enough for the status chip; a precise
+  // per-connection status is a later refinement.
   let online = $state(typeof navigator !== "undefined" ? navigator.onLine : true);
 
-  if (typeof window !== "undefined") {
-    window.addEventListener("online", () => (online = true));
-    window.addEventListener("offline", () => (online = false));
-  }
+  onMount(() => {
+    const onOnline = () => (online = true);
+    const onOffline = () => (online = false);
+    window.addEventListener("online", onOnline);
+    window.addEventListener("offline", onOffline);
+    return () => {
+      window.removeEventListener("online", onOnline);
+      window.removeEventListener("offline", onOffline);
+    };
+  });
 </script>
 
 <div class="screen">

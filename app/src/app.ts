@@ -14,6 +14,7 @@ export interface AppContext {
   syncClient: SyncClient;
   setCallsign: (callsign: string) => Identity;
   getIdentity: () => Identity | null;
+  destroy: () => void;
 }
 
 const WS_URL =
@@ -22,13 +23,15 @@ const WS_URL =
 export async function createAppContext(): Promise<AppContext> {
   const store = new FeatureStore();
 
+  let detachPersistence: (() => void) | null = null;
+  let persistence: IndexedDbPersistence | null = null;
   try {
-    const persistence = await IndexedDbPersistence.open("sar-map", {
+    persistence = await IndexedDbPersistence.open("sar-map", {
       setTimer: (fn, ms) => setTimeout(fn, ms) as unknown as number,
       clearTimer: (h) => clearTimeout(h as unknown as ReturnType<typeof setTimeout>),
     });
     await persistence.load(store);
-    persistence.attach(store);
+    detachPersistence = persistence.attach(store);
   } catch (err) {
     console.error("Persistence unavailable, continuing in-memory:", err);
   }
@@ -40,6 +43,8 @@ export async function createAppContext(): Promise<AppContext> {
     clearTimer: (h) => clearTimeout(h as unknown as ReturnType<typeof setTimeout>),
     random: () => Math.random(),
   });
+  // start() begins connecting; the first inbound message can only arrive
+  // asynchronously after onOpen, by which point createMapStore has run.
   syncClient.start();
 
   const mapStore = createMapStore(store);
@@ -64,6 +69,12 @@ export async function createAppContext(): Promise<AppContext> {
         return identity;
       }
       return null;
+    },
+    destroy: () => {
+      detachPersistence?.();
+      void persistence?.close();
+      syncClient.stop();
+      mapStore.destroy();
     },
   };
 }

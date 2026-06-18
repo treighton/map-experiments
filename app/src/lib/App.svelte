@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount } from "svelte";
+  import { onMount, onDestroy } from "svelte";
   import CallsignGate from "./CallsignGate.svelte";
   import MapScreen from "./MapScreen.svelte";
   import { createAppContext, type AppContext } from "../app.js";
@@ -11,6 +11,10 @@
   onMount(async () => {
     ctx = await createAppContext();
     identity = ctx.getIdentity();
+  });
+
+  onDestroy(() => {
+    ctx?.destroy();
   });
 
   function onCallsign(callsign: string) {
