@@ -16,4 +16,4 @@ export {
   IndexedDbPersistence,
   type PersistenceTimerDeps,
 } from "./indexedDbPersistence.js";
-export { type ChangeListener } from "./featureStore.js";
+export { type ChangeListener, type ChangeOrigin } from "./featureStore.js";

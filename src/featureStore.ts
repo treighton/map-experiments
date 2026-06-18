@@ -182,6 +182,10 @@ export class FeatureStore {
    * - Listeners are called synchronously and MUST NOT call mutating methods on
    *   this store (create/update/remove/applyDelta); doing so causes reentrant
    *   notification.
+   * - The origin parameter is "local" for mutations initiated on this device
+   *   (create/update/remove) and "remote" for deltas received from peers
+   *   (applyDelta). A sync client should broadcast only when origin === "local"
+   *   to prevent echo loops.
    */
   onChange(listener: ChangeListener): () => void {
     this.listeners.add(listener);
