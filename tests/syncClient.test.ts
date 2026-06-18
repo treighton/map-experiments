@@ -52,6 +52,7 @@ describe("SyncClient connect", () => {
       // but do NOT call start() — the client's start() drives the symmetric
       // handshake (server replies with its digest on receiving the client's).
       new SyncSession(serverStore, serverConn);
+      clientConn.open();
       return clientConn;
     };
 
@@ -75,6 +76,7 @@ describe("SyncClient connect", () => {
     const connect = (): InMemoryConnection => {
       const [clientConn, serverConn] = connectionPair();
       void serverConn;
+      clientConn.open();
       made.push(clientConn);
       return clientConn;
     };
@@ -88,12 +90,12 @@ describe("SyncClient connect", () => {
       maxDelayMs: 30000,
     });
     client.start();
-    // Drive backoff up: disconnect twice without a clean reopen resetting it.
+    // Drive backoff up: disconnect twice without inbound (no server) keeping it climbing.
     made[0]!.close(); // attempt 0 → delay 500, attempt→1
     expect(timer.lastDelay).toBe(500);
-    timer.fire(); // reconnect (made[1]); open resets attempt to 0
-    made[1]!.close(); // attempt 0 again → delay 500
-    expect(timer.lastDelay).toBe(500);
+    timer.fire(); // reconnect (made[1]); opens but no inbound → attempt stays 1
+    made[1]!.close(); // attempt 1 → delay 1000, attempt→2
+    expect(timer.lastDelay).toBe(1000);
     client.stop();
 
     // Fresh start() must reset attempt to 0 → first disconnect delay is 500 again,
@@ -116,6 +118,7 @@ describe("SyncClient reconnect", () => {
       conns++;
       const [clientConn, serverConn] = connectionPair();
       void serverConn;
+      clientConn.open();
       made.push(clientConn);
       return clientConn;
     };
@@ -140,9 +143,9 @@ describe("SyncClient reconnect", () => {
     timer.fire();
     expect(conns).toBe(2);
 
-    // Second disconnect: open reset attempt to 0 → capped 1000 → *0.5 = 500.
+    // Second disconnect: no inbound, attempt still 1 → capped 2000 → *0.5 = 1000.
     made[1]!.close();
-    expect(timer.lastDelay).toBe(500);
+    expect(timer.lastDelay).toBe(1000);
     client.stop();
   });
 
@@ -163,6 +166,7 @@ describe("SyncClient reconnect", () => {
     const connect = (): InMemoryConnection => {
       const [clientConn, serverConn] = connectionPair();
       void serverConn;
+      clientConn.open();
       made.push(clientConn);
       return clientConn;
     };
@@ -191,6 +195,7 @@ describe("SyncClient reconnect", () => {
       conns++;
       const [clientConn, serverConn] = connectionPair();
       void serverConn;
+      clientConn.open();
       made.push(clientConn);
       return clientConn;
     };
@@ -221,6 +226,7 @@ describe("SyncClient reconnect", () => {
       // Construct the server-side session (registers handler); do NOT start() —
       // the client's start() drives the symmetric handshake on each connect.
       new SyncSession(serverStore, serverConn);
+      clientConn.open();
       return clientConn;
     };
     const client = new SyncClient({
@@ -243,6 +249,38 @@ describe("SyncClient reconnect", () => {
     // Reconnect — the fresh handshake must carry the offline edit to the server.
     timer.fire();
     expect(serverStore.getRaw(f.properties.id)?.properties.label).toBe("offline-edit");
+    client.stop();
+  });
+
+  it("does not reset backoff on bare open (only on first inbound message)", () => {
+    const timer = new FakeTimer();
+    const clientStore = new FeatureStore({ now: () => 2, newId: () => "c1" });
+    const made: InMemoryConnection[] = [];
+    const connect = (): InMemoryConnection => {
+      const [clientConn, serverConn] = connectionPair();
+      void serverConn; // no server session — client gets no inbound messages
+      clientConn.open(); // opens, so the client starts, but no inbound arrives
+      made.push(clientConn);
+      return clientConn;
+    };
+    const client = new SyncClient({
+      store: clientStore,
+      connect,
+      setTimer: timer.setTimer,
+      clearTimer: timer.clearTimer,
+      random: () => 1, // ceiling: delay = capped * 1.0
+      baseDelayMs: 1000,
+      maxDelayMs: 30000,
+    });
+    client.start();
+    made[0]!.close(); // attempt 0 → delay 1000, attempt→1
+    expect(timer.lastDelay).toBe(1000);
+    timer.fire();
+    made[1]!.close(); // no inbound happened → attempt still 1 → delay 2000
+    expect(timer.lastDelay).toBe(2000);
+    timer.fire();
+    made[2]!.close(); // attempt 2 → delay 4000 (backoff GROWS, not reset)
+    expect(timer.lastDelay).toBe(4000);
     client.stop();
   });
 });
