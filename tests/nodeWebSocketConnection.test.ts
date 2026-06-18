@@ -8,8 +8,8 @@ class FakeWsSocket {
   readyState = 0; // CONNECTING
   sent: string[] = [];
   closed = false;
-  private handlers: Record<string, ((arg?: unknown) => void)[]> = {};
-  on(event: string, handler: (arg?: unknown) => void) {
+  private handlers: Record<string, ((arg?: unknown, arg2?: unknown) => void)[]> = {};
+  on(event: string, handler: (arg?: unknown, arg2?: unknown) => void) {
     (this.handlers[event] ??= []).push(handler);
   }
   send(data: string) {
@@ -19,7 +19,9 @@ class FakeWsSocket {
     this.closed = true;
   }
   emit(event: string, arg?: unknown) {
-    for (const h of this.handlers[event] ?? []) h(arg);
+    // Real ws calls message handlers with (data, isBinary); pass a second arg to
+    // match. The adapter ignores isBinary.
+    for (const h of this.handlers[event] ?? []) h(arg, false as unknown);
   }
   fireOpen() {
     this.readyState = FakeWsSocket.OPEN;
@@ -92,5 +94,25 @@ describe("NodeWebSocketConnection", () => {
     ws.emit("error", new Error("boom"));
     ws.emit("close");
     expect(closed).toBe(1); // only once
+  });
+
+  it("fires onOpen on a microtask if the socket is already open at wrap time", async () => {
+    const ws = new FakeWsSocket();
+    ws.readyState = FakeWsSocket.OPEN; // already open (server-side scenario)
+    const conn = new NodeWebSocketConnection(ws as never);
+    let opened = false;
+    conn.onOpen(() => (opened = true));
+    expect(opened).toBe(false); // not synchronous — caller registers handler first
+    await Promise.resolve(); // let the microtask run
+    expect(opened).toBe(true);
+  });
+
+  it("drops a non-text (non-Buffer non-string) message frame", () => {
+    const { ws, conn } = makeConn();
+    ws.fireOpen();
+    const got: string[] = [];
+    conn.onMessage((d) => got.push(d));
+    ws.emit("message", new ArrayBuffer(4)); // not a string, not a Buffer
+    expect(got).toEqual([]); // dropped, not "[object ArrayBuffer]"
   });
 });

@@ -10,7 +10,7 @@ interface WsLike {
   OPEN: number;
   send(data: string): void;
   close(): void;
-  on(event: "message", handler: (data: unknown) => void): void;
+  on(event: "message", handler: (data: unknown, isBinary: boolean) => void): void;
   on(event: "open" | "close", handler: () => void): void;
   on(event: "error", handler: (err: unknown) => void): void;
 }
@@ -29,12 +29,18 @@ export class NodeWebSocketConnection implements Connection {
 
   constructor(private ws: WsLike) {
     this.ws.on("message", (data: unknown) => {
-      const str =
-        typeof data === "string"
-          ? data
-          : Buffer.isBuffer(data)
-            ? data.toString("utf8")
-            : String(data);
+      let str: string;
+      if (typeof data === "string") {
+        str = data;
+      } else if (Buffer.isBuffer(data)) {
+        str = data.toString("utf8");
+      } else {
+        // The protocol is JSON text; a non-string/non-Buffer frame means the
+        // socket's binaryType is misconfigured. Fail loudly rather than feeding
+        // garbage to the parser.
+        console.error("NodeWebSocketConnection: unexpected non-text message frame");
+        return;
+      }
       for (const h of this.messageHandlers) h(str);
     });
     this.ws.on("open", () => {
@@ -42,6 +48,15 @@ export class NodeWebSocketConnection implements Connection {
     });
     this.ws.on("close", () => this.fireClose());
     this.ws.on("error", () => this.fireClose());
+
+    // If the socket is already OPEN at wrap time (server-side: ws.Server fires
+    // 'open' before handing us the socket), fire open handlers on a microtask so
+    // the caller has a chance to register them first.
+    if (this.ws.readyState === this.ws.OPEN) {
+      queueMicrotask(() => {
+        for (const h of this.openHandlers) h();
+      });
+    }
   }
 
   private fireClose(): void {
