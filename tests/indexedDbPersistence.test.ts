@@ -150,3 +150,63 @@ describe("IndexedDbPersistence debounce integration", () => {
     await p2.close();
   });
 });
+
+describe("IndexedDbPersistence live edits", () => {
+  it("persists an edit made after loading existing data", async () => {
+    // Seed the db with one feature.
+    const p1 = await IndexedDbPersistence.open("sar-test", noopTimerDeps());
+    const seed = new FeatureStore({ now: () => 1000, newId: () => "id-1" });
+    p1.attach(seed);
+    seed.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "old",
+      color: "",
+    });
+    await p1.flush();
+    await p1.close();
+
+    // Reopen, load, attach, then edit.
+    const p2 = await IndexedDbPersistence.open("sar-test", noopTimerDeps());
+    let t = 2000;
+    const store = new FeatureStore({ now: () => t, newId: () => "id-z" });
+    await p2.load(store);
+    p2.attach(store);
+    t = 3000;
+    store.update(ME, "id-1", { label: "new" });
+    await p2.flush();
+    await p2.close();
+
+    // Reopen again and confirm the edit persisted.
+    const p3 = await IndexedDbPersistence.open("sar-test", noopTimerDeps());
+    const check = new FeatureStore({ now: () => 4000, newId: () => "id-q" });
+    await p3.load(check);
+    expect(check.getRaw("id-1")?.properties.label).toBe("new");
+    await p3.close();
+  });
+
+  it("attach after load does not echo loaded features into a write", async () => {
+    // Seed one feature.
+    const p1 = await IndexedDbPersistence.open("sar-test", noopTimerDeps());
+    const seed = new FeatureStore({ now: () => 1000, newId: () => "id-1" });
+    p1.attach(seed);
+    seed.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    await p1.flush();
+    await p1.close();
+
+    // Reopen and load BEFORE attaching; then attach and assert nothing is queued.
+    const p2 = await IndexedDbPersistence.open("sar-test", noopTimerDeps());
+    const store = new FeatureStore({ now: () => 2000, newId: () => "id-z" });
+    await p2.load(store);
+    const off = p2.attach(store);
+    // load happened before attach, so the loaded feature must not be queued.
+    expect((p2 as unknown as { scheduler: { pending: number } }).scheduler.pending).toBe(0);
+    off();
+    await p2.close();
+  });
+});
