@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { idsNeeded } from "../src/syncProtocol.js";
 import { parseFeature } from "../src/syncProtocol.js";
+import { parseMessage } from "../src/syncProtocol.js";
 
 describe("idsNeeded", () => {
   it("requests ids the remote has that the local lacks", () => {
@@ -94,5 +95,52 @@ describe("parseFeature", () => {
     const f = validFeatureObject();
     delete (f as Record<string, unknown>).geometry;
     expect(parseFeature(f)).toBeNull();
+  });
+});
+
+describe("parseMessage", () => {
+  it("parses a digest message", () => {
+    const raw = JSON.stringify({ type: "digest", entries: { a: 1 } });
+    expect(parseMessage(raw)).toEqual({ type: "digest", entries: { a: 1 } });
+  });
+
+  it("parses a need message", () => {
+    const raw = JSON.stringify({ type: "need", ids: ["a", "b"] });
+    expect(parseMessage(raw)).toEqual({ type: "need", ids: ["a", "b"] });
+  });
+
+  it("parses a features message, validating each feature", () => {
+    const feature = validFeatureObject();
+    const raw = JSON.stringify({ type: "features", features: [feature] });
+    expect(parseMessage(raw)).toEqual({ type: "features", features: [feature] });
+  });
+
+  it("drops invalid features from a features message but keeps valid ones", () => {
+    const good = validFeatureObject();
+    const bad = { type: "Feature", properties: { id: "" } };
+    const raw = JSON.stringify({ type: "features", features: [good, bad] });
+    expect(parseMessage(raw)).toEqual({ type: "features", features: [good] });
+  });
+
+  it("parses an upsert message", () => {
+    const feature = validFeatureObject();
+    const raw = JSON.stringify({ type: "upsert", features: [feature] });
+    expect(parseMessage(raw)).toEqual({ type: "upsert", features: [feature] });
+  });
+
+  it("returns null on malformed JSON", () => {
+    expect(parseMessage("{not json")).toBeNull();
+  });
+
+  it("returns null on an unknown message type", () => {
+    expect(parseMessage(JSON.stringify({ type: "bogus" }))).toBeNull();
+  });
+
+  it("returns null when digest entries is not an object", () => {
+    expect(parseMessage(JSON.stringify({ type: "digest", entries: 5 }))).toBeNull();
+  });
+
+  it("returns null when need ids is not an array of strings", () => {
+    expect(parseMessage(JSON.stringify({ type: "need", ids: "a" }))).toBeNull();
   });
 });
