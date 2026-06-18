@@ -7,7 +7,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "typecheck": "svelte-check --tsconfig ./tsconfig.json"
+    "typecheck": "svelte-check --tsconfig ./tsconfig.json",
+    "sync-server": "vite-node scripts/dev-sync-server.ts"
   },
   "dependencies": {
     "maplibre-gl": "^4.7.0",
