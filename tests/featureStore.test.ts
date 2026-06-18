@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import { FeatureStore } from "../src/featureStore.js";
 
 const ME = { callsign: "Team3-Mike", deviceId: "dev-me" };
+const OTHER = { callsign: "Team1-Sue", deviceId: "dev-other" };
 
 function makeStore() {
   let n = 0;
@@ -26,17 +27,25 @@ describe("FeatureStore create/query", () => {
   });
 
   it("lists only non-deleted features", () => {
-    const store = makeStore();
+    let t = 1000;
+    const store = new FeatureStore({ now: () => t, newId: () => "keep" });
     store.create(ME, {
       kind: "marker",
       geometry: { type: "Point", coordinates: [1, 2] },
-      label: "",
+      label: "keep",
       color: "",
     });
-    // NOTE: only the positive case is exercised here. There is no public way to
-    // create a deleted feature until remove() exists; Task 7 adds an assertion
-    // that a tombstoned feature is excluded from list().
+    const store2 = new FeatureStore({ now: () => t, newId: () => "gone" });
+    store2.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [3, 4] },
+      label: "gone",
+      color: "",
+    });
+    t = 2000;
+    store2.remove(ME, "gone");
     expect(store.list()).toHaveLength(1);
+    expect(store2.list()).toHaveLength(0);
   });
 
   it("exports a GeoJSON FeatureCollection of non-deleted features", () => {
@@ -51,5 +60,67 @@ describe("FeatureStore create/query", () => {
     expect(fc.type).toBe("FeatureCollection");
     expect(fc.features).toHaveLength(1);
     expect(fc.features[0]!.properties.id).toBe("id-1");
+  });
+});
+
+describe("FeatureStore ownership", () => {
+  it("lets the author edit their own feature and bumps updatedAt", () => {
+    let t = 1000;
+    const store = new FeatureStore({ now: () => t, newId: () => "id-1" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "old",
+      color: "",
+    });
+    t = 2000;
+    const updated = store.update(ME, "id-1", { label: "new" });
+    expect(updated.properties.label).toBe("new");
+    expect(updated.properties.updatedAt).toBe(2000);
+  });
+
+  it("throws when a non-author tries to edit", () => {
+    const store = new FeatureStore({ now: () => 1000, newId: () => "id-1" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    expect(() => store.update(OTHER, "id-1", { label: "x" })).toThrow(
+      /not the author/i,
+    );
+  });
+
+  it("soft-deletes via tombstone and removes from list()", () => {
+    let t = 1000;
+    const store = new FeatureStore({ now: () => t, newId: () => "id-1" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    t = 2000;
+    store.remove(ME, "id-1");
+    expect(store.list()).toHaveLength(0);
+    expect(store.getRaw("id-1")!.properties.deleted).toBe(true);
+    expect(store.getRaw("id-1")!.properties.updatedAt).toBe(2000);
+  });
+
+  it("throws when a non-author tries to delete", () => {
+    const store = new FeatureStore({ now: () => 1000, newId: () => "id-1" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    expect(() => store.remove(OTHER, "id-1")).toThrow(/not the author/i);
+  });
+
+  it("throws when editing a missing feature", () => {
+    const store = makeStore();
+    expect(() => store.update(ME, "nope", { label: "x" })).toThrow(/not found/i);
   });
 });

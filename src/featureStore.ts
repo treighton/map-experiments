@@ -23,6 +23,12 @@ export interface StoreDeps {
   newId?: () => string;
 }
 
+export type EditableFields = Partial<
+  Pick<SarFeature["properties"], "label" | "color"> & {
+    geometry: Geometry;
+  }
+>;
+
 /**
  * In-memory store of map features, keyed by feature id.
  *
@@ -74,5 +80,51 @@ export class FeatureStore {
   /** Export non-deleted features as a GeoJSON FeatureCollection. */
   toGeoJSON(): FeatureCollection {
     return { type: "FeatureCollection", features: this.list() };
+  }
+
+  /** The raw stored feature for an id, including tombstones; undefined if unknown. */
+  getRaw(id: string): SarFeature | undefined {
+    return this.features.get(id);
+  }
+
+  private requireOwned(identity: Identity, id: string): SarFeature {
+    const f = this.features.get(id);
+    if (!f) throw new Error(`Feature not found: ${id}`);
+    if (f.properties.authorDeviceId !== identity.deviceId) {
+      throw new Error(`You are not the author of feature ${id}`);
+    }
+    return f;
+  }
+
+  /** Edit a feature you authored. Bumps updatedAt. Throws if missing or not yours. */
+  update(identity: Identity, id: string, edits: EditableFields): SarFeature {
+    const current = this.requireOwned(identity, id);
+    const { geometry, ...propEdits } = edits;
+    const next: SarFeature = {
+      type: "Feature",
+      geometry: geometry ?? current.geometry,
+      properties: {
+        ...current.properties,
+        ...propEdits,
+        updatedAt: this.now(),
+      },
+    };
+    this.features.set(id, next);
+    return next;
+  }
+
+  /** Tombstone a feature you authored (soft delete). Throws if missing or not yours. */
+  remove(identity: Identity, id: string): SarFeature {
+    const current = this.requireOwned(identity, id);
+    const next: SarFeature = {
+      ...current,
+      properties: {
+        ...current.properties,
+        deleted: true,
+        updatedAt: this.now(),
+      },
+    };
+    this.features.set(id, next);
+    return next;
   }
 }
