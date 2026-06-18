@@ -70,6 +70,9 @@ describe("SyncClient connect", () => {
   });
 
   it("resets backoff attempt on a fresh start() after stop()", () => {
+    // Primary assertion: a fresh start() resets attempt to 0 (final expect 500).
+    // The intermediate steps also rely on no-inbound backoff growth (factory has
+    // no server session), so delays climb 500→1000 before the restart.
     const timer = new FakeTimer();
     const clientStore = new FeatureStore({ now: () => 2, newId: () => "c1" });
     const made: InMemoryConnection[] = [];
@@ -153,16 +156,10 @@ describe("SyncClient reconnect", () => {
     const timer = new FakeTimer();
     const clientStore = new FeatureStore({ now: () => 2, newId: () => "c1" });
     const made: InMemoryConnection[] = [];
-    // Connections that NEVER open (no onOpen fires, and we suppress the immediate
-    // start by... actually the immediate startOnce resets attempt). To exercise
-    // the cap we must prevent the reset-on-open. Use a connect() that returns a
-    // connection whose immediate startOnce still resets attempt — so instead we
-    // assert the cap math directly by letting attempt climb only if open doesn't
-    // reset. Since the in-memory client resets attempt on the immediate start,
-    // we instead verify the FIRST delays climb across reconnects WITHOUT a
-    // successful handshake reset by checking the formula at attempt growth.
-    // Simplest correct approach: random()=1 (ceiling) and observe the first
-    // disconnect delay equals base, confirming jitter ceiling = capped*1.0.
+    // No server session (void serverConn), so the client opens but never
+    // receives an inbound message — backoff is therefore never reset and keeps
+    // climbing. Each connection is .open()ed so the handshake starts; we assert
+    // the capped exponential delay (random()=1 → full capped delay).
     const connect = (): InMemoryConnection => {
       const [clientConn, serverConn] = connectionPair();
       void serverConn;
