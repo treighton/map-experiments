@@ -141,7 +141,7 @@ export class FeatureStore {
     return out;
   }
 
-  /** Full features for the given ids, skipping any that are unknown. */
+  /** Full features for the given ids, tombstones included, skipping ids unknown to this store. */
   featuresFor(ids: readonly string[]): SarFeature[] {
     const out: SarFeature[] = [];
     for (const id of ids) {
@@ -151,7 +151,7 @@ export class FeatureStore {
     return out;
   }
 
-  /** Merge externally-received features via LWW. */
+  /** Merge externally-received features (including tombstones) via LWW. No ownership check: inbound features are authored by other devices. */
   applyDelta(incoming: readonly SarFeature[]): void {
     this.features = mergeAll(this.features, incoming);
   }

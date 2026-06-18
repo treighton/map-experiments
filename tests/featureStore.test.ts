@@ -212,7 +212,7 @@ describe("FeatureStore sync API", () => {
     expect(store.digest()).toEqual({ "id-1": 2000 });
   });
 
-  it("applyDelta merges external features via LWW", () => {
+  it("applyDelta inserts a net-new external feature", () => {
     const store = makeStore();
     const incoming = externalFeature({ id: "ext", updatedAt: 500, label: "from-peer" });
     store.applyDelta([incoming]);
@@ -243,5 +243,42 @@ describe("FeatureStore sync API", () => {
       color: "",
     });
     expect(store.featuresFor([f.properties.id, "missing"])).toEqual([f]);
+  });
+
+  it("applyDelta lets a newer external version overwrite an older local one", () => {
+    let t = 1000;
+    const store = new FeatureStore({ now: () => t, newId: () => "ext" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "local-old",
+      color: "",
+    });
+    store.applyDelta([externalFeature({ id: "ext", updatedAt: 9000, label: "external-newest" })]);
+    expect(store.getRaw("ext")!.properties.label).toBe("external-newest");
+  });
+
+  it("featuresFor includes tombstones", () => {
+    let t = 1000;
+    const store = new FeatureStore({ now: () => t, newId: () => "id-1" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    t = 2000;
+    store.remove(ME, "id-1");
+    const result = store.featuresFor(["id-1"]);
+    expect(result).toHaveLength(1);
+    expect(result[0]!.properties.deleted).toBe(true);
+  });
+
+  it("applyDelta merges an inbound tombstone, removing the feature from list()", () => {
+    const store = new FeatureStore({ now: () => 1000, newId: () => "ext" });
+    store.applyDelta([externalFeature({ id: "ext", updatedAt: 100, deleted: false })]);
+    expect(store.list()).toHaveLength(1);
+    store.applyDelta([externalFeature({ id: "ext", updatedAt: 200, deleted: true })]);
+    expect(store.list()).toHaveLength(0);
   });
 });
