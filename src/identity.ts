@@ -25,7 +25,7 @@ export function loadOrCreateIdentity(
 ): Identity {
   const newId = deps.newId ?? defaultNewId;
   let deviceId = kv.getItem(DEVICE_KEY);
-  if (!deviceId) {
+  if (deviceId === null) {
     deviceId = newId();
     kv.setItem(DEVICE_KEY, deviceId);
   }
