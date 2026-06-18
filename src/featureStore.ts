@@ -74,9 +74,16 @@ export class FeatureStore {
     return f;
   }
 
-  /** All features that have not been tombstoned (deleted). */
+  /**
+   * All features that have not been tombstoned (deleted), in a stable order
+   * (sorted by id) so that two converged stores produce identical output.
+   */
   list(): SarFeature[] {
-    return [...this.features.values()].filter((f) => !f.properties.deleted);
+    return [...this.features.values()]
+      .filter((f) => !f.properties.deleted)
+      .sort((a, b) =>
+        a.properties.id < b.properties.id ? -1 : a.properties.id > b.properties.id ? 1 : 0,
+      );
   }
 
   /** Export non-deleted features as a GeoJSON FeatureCollection. */
