@@ -128,3 +128,89 @@ describe("SyncSession live broadcast", () => {
     expect(storeB.list().some((feat) => feat.properties.label === "after-stop")).toBe(false);
   });
 });
+
+describe("SyncSession delete + termination", () => {
+  it("propagates a delete (tombstone) to the peer", () => {
+    const [connA, connB] = connectionPair();
+    let tA = 1;
+    const storeA = new FeatureStore({ now: () => tA, newId: () => "a1" });
+    const storeB = new FeatureStore({ now: () => 1, newId: () => "b1" });
+    new SyncSession(storeA, connA).start();
+    new SyncSession(storeB, connB).start();
+
+    // A creates then deletes a feature live.
+    tA = 2;
+    const f = storeA.create(A, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [5, 5] },
+      label: "doomed",
+      color: "",
+    });
+    tA = 3;
+    storeA.remove(A, f.properties.id);
+
+    // B must see the tombstone: excluded from list(), but getRaw shows deleted.
+    expect(storeB.list().some((x) => x.properties.id === f.properties.id)).toBe(false);
+    expect(storeB.getRaw(f.properties.id)?.properties.deleted).toBe(true);
+  });
+
+  it("handshake terminates (no infinite re-offer loop)", () => {
+    const [connA, connB] = connectionPair();
+    const storeA = new FeatureStore({ now: () => 1, newId: () => "a1" });
+    const storeB = new FeatureStore({ now: () => 1, newId: () => "b1" });
+    storeA.create(A, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 1] },
+      label: "a",
+      color: "",
+    });
+    storeB.create(B, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [2, 2] },
+      label: "b",
+      color: "",
+    });
+
+    // Construct both sessions first so both are listening before either fires.
+    const sessionA = new SyncSession(storeA, connA);
+    const sessionB = new SyncSession(storeB, connB);
+
+    // Count total messages crossing the wire; a re-offer loop would be unbounded.
+    let total = 0;
+    const wrap = (conn: typeof connA) => {
+      const orig = conn.send.bind(conn);
+      (conn as unknown as { send: (d: string) => void }).send = (d: string) => {
+        total++;
+        if (total > 100) throw new Error("handshake did not terminate");
+        orig(d);
+      };
+    };
+    wrap(connA);
+    wrap(connB);
+
+    sessionA.start();
+    sessionB.start();
+
+    expect(storeA.toGeoJSON()).toEqual(storeB.toGeoJSON());
+    expect(total).toBeLessThan(100); // settled in a small bounded number of messages
+  });
+
+  it("a stopped session ignores further inbound messages", () => {
+    const [connA, connB] = connectionPair();
+    const storeA = new FeatureStore({ now: () => 1, newId: () => "a1" });
+    const storeB = new FeatureStore({ now: () => 1, newId: () => "b1" });
+    const sessionA = new SyncSession(storeA, connA);
+    new SyncSession(storeB, connB).start();
+    sessionA.start();
+    sessionA.stop();
+
+    // B creates after A stopped; B will broadcast an upsert, but A (stopped) must ignore it.
+    storeB.create(B, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [7, 7] },
+      label: "after-a-stopped",
+      color: "",
+    });
+    expect(storeA.list().some((x) => x.properties.label === "after-a-stopped")).toBe(false);
+  });
+});

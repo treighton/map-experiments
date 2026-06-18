@@ -1,6 +1,6 @@
 import type { FeatureStore, ChangeOrigin } from "./featureStore.js";
 import type { Connection } from "./connection.js";
-import { parseMessage, idsNeeded } from "./syncProtocol.js";
+import { parseMessage, idsNeeded, type SyncMessage } from "./syncProtocol.js";
 
 /**
  * Drives the sync protocol over one Connection against one FeatureStore.
@@ -8,6 +8,7 @@ import { parseMessage, idsNeeded } from "./syncProtocol.js";
  * features/upsert->applyDelta. Live upsert broadcast is added separately.
  */
 export class SyncSession {
+  private stopped = false;
   private offChange: () => void;
 
   constructor(
@@ -27,21 +28,27 @@ export class SyncSession {
 
   /** Broadcast only local-origin edits; remote-origin changes are terminal. */
   private onLocalChange(ids: readonly string[], origin: ChangeOrigin): void {
-    if (origin !== "local") return;
+    if (this.stopped || origin !== "local") return;
     const features = this.store.featuresFor(ids);
     if (features.length > 0) this.send({ type: "upsert", features });
   }
 
-  /** Detach the change listener (call when the session ends). */
+  /**
+   * End the session: stop broadcasting local edits AND stop applying inbound
+   * messages. The connection itself is owned by the caller, who should close()
+   * it after stop().
+   */
   stop(): void {
+    this.stopped = true;
     this.offChange();
   }
 
-  private send(msg: { type: string; [k: string]: unknown }): void {
+  private send(msg: SyncMessage): void {
     this.conn.send(JSON.stringify(msg));
   }
 
   private handle(data: string): void {
+    if (this.stopped) return;
     const msg = parseMessage(data);
     if (!msg) {
       console.error("SyncSession: dropping malformed message");
