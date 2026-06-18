@@ -123,4 +123,56 @@ describe("FeatureStore ownership", () => {
     const store = makeStore();
     expect(() => store.update(ME, "nope", { label: "x" })).toThrow(/not found/i);
   });
+
+  it("throws when editing an already-deleted feature", () => {
+    let t = 1000;
+    const store = new FeatureStore({ now: () => t, newId: () => "id-1" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    t = 2000;
+    store.remove(ME, "id-1");
+    expect(() => store.update(ME, "id-1", { label: "x" })).toThrow(/deleted/i);
+  });
+
+  it("remove is idempotent: a second remove does not bump updatedAt", () => {
+    let t = 1000;
+    const store = new FeatureStore({ now: () => t, newId: () => "id-1" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    t = 2000;
+    store.remove(ME, "id-1");
+    t = 3000;
+    const second = store.remove(ME, "id-1");
+    expect(second.properties.updatedAt).toBe(2000);
+  });
+
+  it("throws when deleting a missing feature", () => {
+    const store = makeStore();
+    expect(() => store.remove(ME, "nope")).toThrow(/not found/i);
+  });
+
+  it("update preserves immutable fields (id, createdAt, authorDeviceId, kind)", () => {
+    let t = 1000;
+    const store = new FeatureStore({ now: () => t, newId: () => "id-1" });
+    const created = store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "old",
+      color: "",
+    });
+    t = 2000;
+    const updated = store.update(ME, "id-1", { label: "new" });
+    expect(updated.properties.id).toBe(created.properties.id);
+    expect(updated.properties.createdAt).toBe(1000);
+    expect(updated.properties.authorDeviceId).toBe("dev-me");
+    expect(updated.properties.kind).toBe("marker");
+  });
 });

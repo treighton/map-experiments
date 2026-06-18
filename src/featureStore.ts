@@ -99,6 +99,9 @@ export class FeatureStore {
   /** Edit a feature you authored. Bumps updatedAt. Throws if missing or not yours. */
   update(identity: Identity, id: string, edits: EditableFields): SarFeature {
     const current = this.requireOwned(identity, id);
+    if (current.properties.deleted) {
+      throw new Error(`Feature ${id} has been deleted`);
+    }
     const { geometry, ...propEdits } = edits;
     const next: SarFeature = {
       type: "Feature",
@@ -116,6 +119,7 @@ export class FeatureStore {
   /** Tombstone a feature you authored (soft delete). Throws if missing or not yours. */
   remove(identity: Identity, id: string): SarFeature {
     const current = this.requireOwned(identity, id);
+    if (current.properties.deleted) return current;
     const next: SarFeature = {
       ...current,
       properties: {
