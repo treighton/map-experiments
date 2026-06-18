@@ -17,6 +17,21 @@ export interface SyncClientDeps {
 }
 
 /**
+ * Capped exponential backoff with half-jitter.
+ * delay = min(maxDelayMs, baseDelayMs * 2**attempt) * (0.5 + 0.5*random),
+ * i.e. 50–100% of the capped exponential delay. `random` is in [0, 1).
+ */
+export function backoffDelay(
+  attempt: number,
+  baseDelayMs: number,
+  maxDelayMs: number,
+  random: number,
+): number {
+  const capped = Math.min(maxDelayMs, baseDelayMs * 2 ** attempt);
+  return capped * (0.5 + 0.5 * random);
+}
+
+/**
  * Maintains a sync connection to a peer with auto-reconnect. Builds a fresh
  * SyncSession per connection. On disconnect, reconnects with capped exponential
  * backoff + jitter (all timing/randomness injected for deterministic tests).
@@ -109,8 +124,11 @@ export class SyncClient {
   }
 
   private nextDelay(): number {
-    const capped = Math.min(this.maxDelayMs, this.baseDelayMs * 2 ** this.attempt);
-    // Half-jitter: 50–100% of the capped delay.
-    return capped * (0.5 + 0.5 * this.random());
+    return backoffDelay(
+      this.attempt,
+      this.baseDelayMs,
+      this.maxDelayMs,
+      this.random(),
+    );
   }
 }

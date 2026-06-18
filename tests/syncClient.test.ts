@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { SyncClient } from "../src/syncClient.js";
+import { SyncClient, backoffDelay } from "../src/syncClient.js";
 import { FeatureStore } from "../src/featureStore.js";
 import { connectionPair } from "../src/connection.js";
 import { SyncSession } from "../src/syncSession.js";
@@ -244,5 +244,32 @@ describe("SyncClient reconnect", () => {
     timer.fire();
     expect(serverStore.getRaw(f.properties.id)?.properties.label).toBe("offline-edit");
     client.stop();
+  });
+});
+
+describe("backoffDelay", () => {
+  // delay(attempt, base, max, random) = min(max, base * 2**attempt) * (0.5 + 0.5*random)
+  it("doubles exponentially with attempt (random=1 → full capped delay)", () => {
+    expect(backoffDelay(0, 1000, 30000, 1)).toBe(1000);
+    expect(backoffDelay(1, 1000, 30000, 1)).toBe(2000);
+    expect(backoffDelay(2, 1000, 30000, 1)).toBe(4000);
+    expect(backoffDelay(3, 1000, 30000, 1)).toBe(8000);
+  });
+
+  it("caps at maxDelayMs", () => {
+    // base*2**attempt would be 1000*2^6=64000, capped to 30000.
+    expect(backoffDelay(6, 1000, 30000, 1)).toBe(30000);
+    expect(backoffDelay(10, 1000, 30000, 1)).toBe(30000);
+  });
+
+  it("applies half-jitter (random=0 → 50% of capped)", () => {
+    expect(backoffDelay(0, 1000, 30000, 0)).toBe(500);
+    expect(backoffDelay(2, 1000, 30000, 0)).toBe(2000); // capped 4000 * 0.5
+    expect(backoffDelay(6, 1000, 30000, 0)).toBe(15000); // capped 30000 * 0.5
+  });
+
+  it("interpolates jitter between 50% and 100%", () => {
+    // random=0.5 → factor 0.75
+    expect(backoffDelay(0, 1000, 30000, 0.5)).toBe(750);
   });
 });
