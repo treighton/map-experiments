@@ -11,3 +11,9 @@ export {
   loadOrCreateIdentity,
   type KeyValueStore,
 } from "./identity.js";
+export { WriteScheduler, type SchedulerDeps, type TimerHandle } from "./writeScheduler.js";
+export {
+  IndexedDbPersistence,
+  type PersistenceTimerDeps,
+} from "./indexedDbPersistence.js";
+export { type ChangeListener } from "./featureStore.js";
