@@ -62,6 +62,9 @@ export class IndexedDbPersistence {
 
   /** Read all persisted features and merge them into the store via applyDelta. */
   async load(store: FeatureStore): Promise<void> {
+    if (this.boundStore) {
+      throw new Error("load() must be called before attach()");
+    }
     const tx = this.db.transaction(STORE_NAME, "readonly");
     const objStore = tx.objectStore(STORE_NAME);
     const records = await reqAsPromise<SarFeature[]>(
@@ -93,7 +96,11 @@ export class IndexedDbPersistence {
   }
 
   async close(): Promise<void> {
-    await this.flush();
+    // Drain pending writes, including any re-marked by a failed batch's retry.
+    // Bounded so a persistently-failing write cannot loop forever.
+    for (let i = 0; i < 5 && this.scheduler.pending > 0; i++) {
+      await this.flush();
+    }
     this.db.close();
   }
 
@@ -118,7 +125,10 @@ export class IndexedDbPersistence {
         for (const id of ids) this.scheduler.markDirty(id);
       });
     })();
-    this.inFlight = run;
-    return run;
+    // Chain so flush()/close() await ALL outstanding writes, not just the latest.
+    // (Single-promise tracking would miss an earlier batch still in flight.)
+    const chained = this.inFlight.then(() => run);
+    this.inFlight = chained;
+    return chained;
   }
 }
