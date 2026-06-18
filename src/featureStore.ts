@@ -3,8 +3,10 @@ import type {
   FeatureKind,
   Geometry,
   FeatureCollection,
+  Digest,
 } from "./types.js";
 import { newId as defaultNewId } from "./uuid.js";
+import { mergeAll } from "./merge.js";
 
 export interface Identity {
   callsign: string;
@@ -130,5 +132,27 @@ export class FeatureStore {
     };
     this.features.set(id, next);
     return next;
+  }
+
+  /** id -> updatedAt for every feature, tombstones included. */
+  digest(): Digest {
+    const out: Digest = {};
+    for (const [id, f] of this.features) out[id] = f.properties.updatedAt;
+    return out;
+  }
+
+  /** Full features for the given ids, skipping any that are unknown. */
+  featuresFor(ids: readonly string[]): SarFeature[] {
+    const out: SarFeature[] = [];
+    for (const id of ids) {
+      const f = this.features.get(id);
+      if (f) out.push(f);
+    }
+    return out;
+  }
+
+  /** Merge externally-received features via LWW. */
+  applyDelta(incoming: readonly SarFeature[]): void {
+    this.features = mergeAll(this.features, incoming);
   }
 }

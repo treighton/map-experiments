@@ -1,5 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { FeatureStore } from "../src/featureStore.js";
+import type { SarFeature } from "../src/types.js";
 
 const ME = { callsign: "Team3-Mike", deviceId: "dev-me" };
 const OTHER = { callsign: "Team1-Sue", deviceId: "dev-other" };
@@ -174,5 +175,73 @@ describe("FeatureStore ownership", () => {
     expect(updated.properties.createdAt).toBe(1000);
     expect(updated.properties.authorDeviceId).toBe("dev-me");
     expect(updated.properties.kind).toBe("marker");
+  });
+});
+
+function externalFeature(over: Partial<SarFeature["properties"]>): SarFeature {
+  return {
+    type: "Feature",
+    geometry: { type: "Point", coordinates: [0, 0] },
+    properties: {
+      id: "ext",
+      author: "Team1-Sue",
+      authorDeviceId: "dev-other",
+      createdAt: 100,
+      updatedAt: 100,
+      deleted: false,
+      kind: "marker",
+      label: "",
+      color: "",
+      ...over,
+    },
+  };
+}
+
+describe("FeatureStore sync API", () => {
+  it("produces a digest of id -> updatedAt including tombstones", () => {
+    let t = 1000;
+    const store = new FeatureStore({ now: () => t, newId: () => "id-1" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    t = 2000;
+    store.remove(ME, "id-1");
+    expect(store.digest()).toEqual({ "id-1": 2000 });
+  });
+
+  it("applyDelta merges external features via LWW", () => {
+    const store = makeStore();
+    const incoming = externalFeature({ id: "ext", updatedAt: 500, label: "from-peer" });
+    store.applyDelta([incoming]);
+    expect(store.getRaw("ext")!.properties.label).toBe("from-peer");
+  });
+
+  it("applyDelta does not let an older external version overwrite a newer local one", () => {
+    let t = 1000;
+    const store = new FeatureStore({ now: () => t, newId: () => "ext" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "local-newer",
+      color: "",
+    });
+    t = 2000;
+    store.update(ME, "ext", { label: "local-newest" });
+    store.applyDelta([externalFeature({ id: "ext", updatedAt: 500, label: "stale" })]);
+    expect(store.getRaw("ext")!.properties.label).toBe("local-newest");
+  });
+
+  it("featuresFor returns full features for the requested ids", () => {
+    const store = makeStore();
+    const f = store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    expect(store.featuresFor([f.properties.id, "missing"])).toEqual([f]);
   });
 });
