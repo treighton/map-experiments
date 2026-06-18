@@ -18,6 +18,7 @@
 
   let draw: TerraDraw;
   let active = $state<"marker" | "line" | "polygon" | null>(null);
+  let finishHandler: ((id: string | number) => void) | undefined;
 
   // Real terra-draw v1 mode name strings match the mode class `.mode` property
   const MODE_FOR: Record<"marker" | "line" | "polygon", string> = {
@@ -39,16 +40,23 @@
 
     // Real v1 API: finish callback receives (id: FeatureId, context: OnFinishContext)
     // Use getSnapshotFeature(id) to retrieve the completed feature.
-    draw.on("finish", (id) => {
+    finishHandler = (id) => {
       const feature = draw.getSnapshotFeature(id);
-      const input = toCreateInput(feature as never);
+      if (!feature) {
+        draw.clear();
+        active = null;
+        return;
+      }
+      const input = toCreateInput(feature as { type: "Feature"; geometry?: { type?: string; coordinates?: unknown }; properties?: unknown });
       if (input) store.create(identity, input);
       draw.clear();
       active = null;
-    });
+    };
+    draw.on("finish", finishHandler);
   });
 
   onDestroy(() => {
+    if (finishHandler) draw?.off?.("finish", finishHandler);
     draw?.stop?.();
   });
 

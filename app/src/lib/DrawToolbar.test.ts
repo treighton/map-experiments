@@ -33,6 +33,7 @@ const { FakeTerraDraw, lastDrawRef } = vi.hoisted(() => {
     on(event: string, cb: (id: string, ctx: unknown) => void) {
       if (event === "finish") this.finishCbs.push(cb);
     }
+    off(_event: string, _cb: unknown) {}
     getSnapshot() {
       return Array.from(this.featureMap.values());
     }
@@ -46,6 +47,10 @@ const { FakeTerraDraw, lastDrawRef } = vi.hoisted(() => {
     /** Test helper: store a feature by id, then fire the finish event */
     _emitFinish(id: string, feature: unknown) {
       this.featureMap.set(id, feature);
+      for (const cb of this.finishCbs) cb(id, { mode: "point", action: "draw" });
+    }
+    /** Test helper: fire finish for an id NOT in the feature map → getSnapshotFeature returns undefined */
+    _emitFinishUnknown(id: string) {
       for (const cb of this.finishCbs) cb(id, { mode: "point", action: "draw" });
     }
   }
@@ -130,5 +135,14 @@ describe("DrawToolbar", () => {
     });
     await fireEvent.click(getByRole("button", { name: /line/i }));
     expect(lastDrawRef.current!.mode).toBe("linestring");
+  });
+
+  it("does not crash or create when getSnapshotFeature returns undefined", () => {
+    const create = vi.fn();
+    const store = { create } as never;
+    render(DrawToolbar, { map: fakeMap(), store, identity: ME });
+    // Fire finish for an id with no stored feature → getSnapshotFeature returns undefined.
+    expect(() => lastDrawRef.current!._emitFinishUnknown("missing-id")).not.toThrow();
+    expect(create).not.toHaveBeenCalled();
   });
 });
