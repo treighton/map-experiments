@@ -4,8 +4,12 @@ import { parseMessage, idsNeeded, type SyncMessage } from "./syncProtocol.js";
 import type { SarFeature } from "./types.js";
 
 export interface SyncSessionOptions {
-  /** Called after an inbound features/upsert is applied (server uses this to relay). */
-  onInbound?: (features: SarFeature[]) => void;
+  /**
+   * Called after an inbound features/upsert is applied. `kind` distinguishes a
+   * handshake "features" response from a live "upsert"; the server relays only
+   * "upsert" to avoid re-fanning handshake pulls to every sibling.
+   */
+  onInbound?: (features: SarFeature[], kind: "features" | "upsert") => void;
 }
 
 /**
@@ -16,7 +20,7 @@ export interface SyncSessionOptions {
 export class SyncSession {
   private stopped = false;
   private offChange: () => void;
-  private onInbound?: (features: SarFeature[]) => void;
+  private onInbound?: (features: SarFeature[], kind: "features" | "upsert") => void;
 
   constructor(
     private store: FeatureStore,
@@ -42,7 +46,7 @@ export class SyncSession {
    */
   relay(features: readonly SarFeature[]): void {
     if (this.stopped || features.length === 0) return;
-    this.send({ type: "upsert", features: [...features] });
+    this.send({ type: "upsert", features: features as SarFeature[] });
   }
 
   /** Broadcast only local-origin edits; remote-origin changes are terminal. */
@@ -86,12 +90,12 @@ export class SyncSession {
       }
       case "features": {
         this.store.applyDelta(msg.features);
-        this.onInbound?.(msg.features);
+        this.onInbound?.(msg.features, "features");
         break;
       }
       case "upsert": {
         this.store.applyDelta(msg.features);
-        this.onInbound?.(msg.features);
+        this.onInbound?.(msg.features, "upsert");
         break;
       }
     }

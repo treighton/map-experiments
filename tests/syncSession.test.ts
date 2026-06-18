@@ -358,10 +358,9 @@ describe("SyncSession relay and onInbound", () => {
     const [connA, connB] = connectionPair();
     const storeA = new FeatureStore({ now: () => 1, newId: () => "a1" });
     const inbound: string[][] = [];
-    const sessionA = new SyncSession(storeA, connA, {
-      onInbound: (features) => inbound.push(features.map((f) => f.properties.id)),
+    new SyncSession(storeA, connA, {
+      onInbound: (features, kind) => inbound.push([kind, ...features.map((f) => f.properties.id)]),
     });
-    void sessionA;
     connB.send(
       JSON.stringify({
         type: "upsert",
@@ -385,6 +384,38 @@ describe("SyncSession relay and onInbound", () => {
       }),
     );
     expect(storeA.getRaw("in1")).toBeDefined();
-    expect(inbound).toEqual([["in1"]]);
+    expect(inbound).toEqual([["upsert", "in1"]]);
+  });
+
+  it("reports kind 'features' for an inbound handshake features message", () => {
+    const [connA, connB] = connectionPair();
+    const storeA = new FeatureStore({ now: () => 1, newId: () => "a1" });
+    const seen: string[] = [];
+    new SyncSession(storeA, connA, {
+      onInbound: (_features, kind) => seen.push(kind),
+    });
+    connB.send(
+      JSON.stringify({
+        type: "features",
+        features: [
+          {
+            type: "Feature",
+            geometry: { type: "Point", coordinates: [1, 2] },
+            properties: {
+              id: "h1",
+              author: "B",
+              authorDeviceId: "dev-b",
+              createdAt: 3,
+              updatedAt: 3,
+              deleted: false,
+              kind: "marker",
+              label: "",
+              color: "",
+            },
+          },
+        ],
+      }),
+    );
+    expect(seen).toEqual(["features"]);
   });
 });
