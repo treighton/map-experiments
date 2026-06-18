@@ -1,6 +1,16 @@
 import type { FeatureStore, ChangeOrigin } from "./featureStore.js";
 import type { Connection } from "./connection.js";
 import { parseMessage, idsNeeded, type SyncMessage } from "./syncProtocol.js";
+import type { SarFeature } from "./types.js";
+
+export interface SyncSessionOptions {
+  /**
+   * Called after an inbound features/upsert is applied. `kind` distinguishes a
+   * handshake "features" response from a live "upsert"; the server relays only
+   * "upsert" to avoid re-fanning handshake pulls to every sibling.
+   */
+  onInbound?: (features: SarFeature[], kind: "features" | "upsert") => void;
+}
 
 /**
  * Drives the sync protocol over one Connection against one FeatureStore.
@@ -9,21 +19,41 @@ import { parseMessage, idsNeeded, type SyncMessage } from "./syncProtocol.js";
  */
 export class SyncSession {
   private stopped = false;
+  private digestSent = false;
   private offChange: () => void;
+  private onInbound?: (features: SarFeature[], kind: "features" | "upsert") => void;
 
   constructor(
     private store: FeatureStore,
     private conn: Connection,
+    opts: SyncSessionOptions = {},
   ) {
+    this.onInbound = opts.onInbound;
     this.conn.onMessage((data) => this.handle(data));
     this.offChange = this.store.onChange((ids, origin) =>
       this.onLocalChange(ids, origin),
     );
   }
 
-  /** Begin the handshake by sending our digest. */
+  /** Begin the handshake by sending our digest. Idempotent (sent at most once). */
   start(): void {
+    this.sendDigest();
+  }
+
+  private sendDigest(): void {
+    if (this.digestSent) return;
+    this.digestSent = true;
     this.send({ type: "digest", entries: this.store.digest() });
+  }
+
+  /**
+   * Push features to the peer as an upsert WITHOUT the local-only onChange gate.
+   * Used by the server to forward remote-origin deltas to other clients. No-op if
+   * stopped or empty.
+   */
+  relay(features: readonly SarFeature[]): void {
+    if (this.stopped || features.length === 0) return;
+    this.send({ type: "upsert", features: features as SarFeature[] });
   }
 
   /** Broadcast only local-origin edits; remote-origin changes are terminal. */
@@ -58,6 +88,9 @@ export class SyncSession {
       case "digest": {
         const need = idsNeeded(this.store.digest(), msg.entries);
         if (need.length > 0) this.send({ type: "need", ids: need });
+        // Reply symmetrically so a single peer start() drives both directions.
+        // Guarded so each session emits its digest at most once (no ping-pong).
+        this.sendDigest();
         break;
       }
       case "need": {
@@ -67,10 +100,12 @@ export class SyncSession {
       }
       case "features": {
         this.store.applyDelta(msg.features);
+        this.onInbound?.(msg.features, "features");
         break;
       }
       case "upsert": {
         this.store.applyDelta(msg.features);
+        this.onInbound?.(msg.features, "upsert");
         break;
       }
     }
