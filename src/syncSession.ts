@@ -19,6 +19,7 @@ export interface SyncSessionOptions {
  */
 export class SyncSession {
   private stopped = false;
+  private digestSent = false;
   private offChange: () => void;
   private onInbound?: (features: SarFeature[], kind: "features" | "upsert") => void;
 
@@ -34,8 +35,14 @@ export class SyncSession {
     );
   }
 
-  /** Begin the handshake by sending our digest. */
+  /** Begin the handshake by sending our digest. Idempotent (sent at most once). */
   start(): void {
+    this.sendDigest();
+  }
+
+  private sendDigest(): void {
+    if (this.digestSent) return;
+    this.digestSent = true;
     this.send({ type: "digest", entries: this.store.digest() });
   }
 
@@ -81,6 +88,9 @@ export class SyncSession {
       case "digest": {
         const need = idsNeeded(this.store.digest(), msg.entries);
         if (need.length > 0) this.send({ type: "need", ids: need });
+        // Reply symmetrically so a single peer start() drives both directions.
+        // Guarded so each session emits its digest at most once (no ping-pong).
+        this.sendDigest();
         break;
       }
       case "need": {

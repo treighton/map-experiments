@@ -291,6 +291,35 @@ describe("SyncSession inbound validation", () => {
   });
 });
 
+describe("SyncSession symmetric handshake", () => {
+  it("a single start() reconciles both directions (peer pulls without starting)", () => {
+    const [connA, connB] = connectionPair();
+    const storeA = new FeatureStore({ now: () => 1, newId: () => "a1" });
+    const storeB = new FeatureStore({ now: () => 1, newId: () => "b1" });
+    storeA.create(A, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 1] },
+      label: "from-a",
+      color: "",
+    });
+    storeB.create(B, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [2, 2] },
+      label: "from-b",
+      color: "",
+    });
+
+    // Construct BOTH sessions, but only ONE calls start().
+    const sessionA = new SyncSession(storeA, connA);
+    new SyncSession(storeB, connB); // B never calls start()
+    sessionA.start();
+
+    // Both directions reconciled: A has B's feature AND B has A's feature.
+    expect(storeA.getRaw("b1")?.properties.label).toBe("from-b");
+    expect(storeB.getRaw("a1")?.properties.label).toBe("from-a");
+  });
+});
+
 describe("SyncSession relay and onInbound", () => {
   it("relay() pushes an upsert to the peer even for features not in this store", () => {
     const [connA, connB] = connectionPair();

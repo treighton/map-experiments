@@ -22,60 +22,20 @@ export class SyncServer {
   }
 
   /**
-   * Intake a new client connection: register a session and wire its lifecycle.
-   *
-   * Handshake ordering note: in-memory pairs (used in tests) deliver messages
-   * synchronously, so the server-side session's start() must fire AFTER the
-   * client-side session has registered its message handler — otherwise the
-   * server's initial digest would arrive before the client is listening and be
-   * silently dropped, preventing state catch-up for late-joining clients.
-   *
-   * Strategy: intercept the connection's onMessage registration so the server
-   * fires start() just before it processes the client's very first message.
-   * At that moment the client is guaranteed to have its handler registered
-   * (it sent a message, so its SyncSession constructor has already run).
-   * startOnce is idempotent — the onOpen fallback covers real async transports
-   * where the connection opens before any message arrives.
+   * Intake a new client connection. The client drives the handshake: when it
+   * sends its digest, this session replies symmetrically (advertising the shared
+   * store's digest), so the client catches up existing state. The server does not
+   * call start() — the symmetric digest exchange handles both directions.
    */
   accept(conn: Connection): void {
-    let started = false;
-    // `session` is declared with const below; the closure captures the binding,
-    // which will be initialised before any inbound message can arrive.
-    // eslint-disable-next-line prefer-const
-    let sessionRef: SyncSession | undefined;
-    const startOnce = () => {
-      if (started) return;
-      started = true;
-      sessionRef!.start();
-    };
-
-    // Wrap onMessage so the server fires start() on the first inbound message,
-    // guaranteeing the client's handler is already registered when the server's
-    // digest hits the wire.
-    const origOnMessage = conn.onMessage.bind(conn);
-    let intercepted = false;
-    conn.onMessage = (handler: (data: string) => void) => {
-      origOnMessage((data: string) => {
-        if (!intercepted) {
-          intercepted = true;
-          startOnce();
-        }
-        handler(data);
-      });
-    };
-
     const session = new SyncSession(this.store, conn, {
       onInbound: (features, kind) => {
         // Only relay live upserts; handshake features pulls stay local.
         if (kind === "upsert") this.relayFrom(session, features);
       },
     });
-    sessionRef = session;
     this.sessions.add(session);
 
-    // Fallback for real async-opening transports where onOpen fires before
-    // any message arrives (startOnce is idempotent).
-    conn.onOpen(startOnce);
     conn.onClose(() => {
       session.stop();
       this.sessions.delete(session);
