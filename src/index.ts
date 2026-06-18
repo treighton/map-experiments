@@ -17,3 +17,15 @@ export {
   type PersistenceTimerDeps,
 } from "./indexedDbPersistence.js";
 export { type ChangeListener, type ChangeOrigin } from "./featureStore.js";
+export {
+  idsNeeded,
+  parseFeature,
+  parseMessage,
+  type SyncMessage,
+} from "./syncProtocol.js";
+export {
+  connectionPair,
+  type Connection,
+  type InMemoryConnection,
+} from "./connection.js";
+export { SyncSession } from "./syncSession.js";
