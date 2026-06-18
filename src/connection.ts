@@ -16,12 +16,26 @@ class MemoryEndpoint implements InMemoryConnection {
   private openHandlers: (() => void)[] = [];
   private closeHandlers: (() => void)[] = [];
   private closed = false;
+  private opened = false;
+  private outbox: string[] = [];
+  private delivering = false;
   peer: MemoryEndpoint | null = null;
 
   send(data: string): void {
     if (this.closed || !this.peer || this.peer.closed) return;
-    // Deliver synchronously to the peer's message handlers.
-    for (const h of this.peer.messageHandlers) h(data);
+    this.outbox.push(data);
+    if (this.delivering) return; // a re-entrant send: let the active loop drain it
+    this.delivering = true;
+    try {
+      while (this.outbox.length > 0) {
+        const next = this.outbox.shift() as string;
+        const peer = this.peer;
+        if (!peer || peer.closed || this.closed) break;
+        for (const h of peer.messageHandlers) h(next);
+      }
+    } finally {
+      this.delivering = false;
+    }
   }
 
   onMessage(handler: (data: string) => void): void {
@@ -47,13 +61,11 @@ class MemoryEndpoint implements InMemoryConnection {
     if (this.peer && !this.peer.closed) this.peer.close();
   }
 
-  get isClosed(): boolean {
-    return this.closed;
-  }
-
   open(): void {
+    if (this.opened) return;
+    this.opened = true;
     this.fireOpen();
-    if (this.peer) this.peer.fireOpen();
+    if (this.peer && !this.peer.opened) this.peer.open();
   }
 }
 

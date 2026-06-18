@@ -47,4 +47,20 @@ describe("connectionPair", () => {
     a.send("after-close"); // swallowed, not delivered
     expect(received).toEqual([]);
   });
+
+  it("handles a handler that sends back synchronously without unbounded recursion", () => {
+    const [a, b] = connectionPair();
+    const atA: string[] = [];
+    let bReplies = 0;
+    a.onMessage((d) => atA.push(d));
+    b.onMessage(() => {
+      // Reply exactly once to avoid an intentional infinite ping-pong.
+      if (bReplies < 1) {
+        bReplies++;
+        b.send("pong");
+      }
+    });
+    a.send("ping");
+    expect(atA).toEqual(["pong"]);
+  });
 });
