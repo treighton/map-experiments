@@ -96,6 +96,36 @@ describe("parseFeature", () => {
     delete (f as Record<string, unknown>).geometry;
     expect(parseFeature(f)).toBeNull();
   });
+
+  it("rejects non-string label or color", () => {
+    const f = validFeatureObject();
+    (f.properties as Record<string, unknown>).label = 42;
+    expect(parseFeature(f)).toBeNull();
+    const f2 = validFeatureObject();
+    delete (f2.properties as Record<string, unknown>).color;
+    expect(parseFeature(f2)).toBeNull();
+  });
+
+  it("rejects a non-finite createdAt", () => {
+    const f = validFeatureObject();
+    (f.properties as Record<string, unknown>).createdAt = Number.NaN;
+    expect(parseFeature(f)).toBeNull();
+  });
+
+  it("rejects Infinity updatedAt", () => {
+    const f = validFeatureObject();
+    (f.properties as Record<string, unknown>).updatedAt = Number.POSITIVE_INFINITY;
+    expect(parseFeature(f)).toBeNull();
+  });
+
+  it("rejects geometry with a non-string type or missing coordinates", () => {
+    const f = validFeatureObject();
+    (f.geometry as Record<string, unknown>).type = 5;
+    expect(parseFeature(f)).toBeNull();
+    const f2 = validFeatureObject();
+    delete (f2.geometry as Record<string, unknown>).coordinates;
+    expect(parseFeature(f2)).toBeNull();
+  });
 });
 
 describe("parseMessage", () => {
@@ -142,5 +172,16 @@ describe("parseMessage", () => {
 
   it("returns null when need ids is not an array of strings", () => {
     expect(parseMessage(JSON.stringify({ type: "need", ids: "a" }))).toBeNull();
+  });
+
+  it("returns null when a digest entry is non-finite", () => {
+    // Infinity is not valid JSON, so craft the raw payload by hand.
+    expect(parseMessage('{"type":"digest","entries":{"a":1e999}}')).toBeNull();
+  });
+
+  it("returns a valid features message with an empty array when all features are invalid", () => {
+    const bad = { type: "Feature", properties: { id: "" } };
+    const raw = JSON.stringify({ type: "features", features: [bad] });
+    expect(parseMessage(raw)).toEqual({ type: "features", features: [] });
   });
 });

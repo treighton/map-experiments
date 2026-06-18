@@ -35,12 +35,20 @@ function isRecord(v: unknown): v is Record<string, unknown> {
  * Validate an untrusted value as a SarFeature. Returns the value typed as
  * SarFeature if every required property is well-formed, else null. Guards
  * especially against a non-finite updatedAt, which would poison digest()/LWW.
+ *
+ * Scalar properties (id, timestamps, author, deviceId, deleted, kind, label,
+ * color) are fully validated. Geometry is validated only shallowly (object with
+ * a string `type` and a `coordinates` key) — the coordinate array shape is NOT
+ * deep-checked here; the renderer (MapLibre) is the consumer that must tolerate
+ * loose coordinates. This is sufficient for the CRDT, which never reads geometry.
  * Pure; does not mutate the input.
  */
 export function parseFeature(value: unknown): SarFeature | null {
   if (!isRecord(value)) return null;
   if (value.type !== "Feature") return null;
   if (!isRecord(value.geometry)) return null;
+  if (typeof value.geometry.type !== "string") return null;
+  if (!("coordinates" in value.geometry)) return null;
   const p = value.properties;
   if (!isRecord(p)) return null;
   if (typeof p.id !== "string" || p.id.length === 0) return null;
@@ -54,6 +62,8 @@ export function parseFeature(value: unknown): SarFeature | null {
     return null;
   }
   if (typeof p.author !== "string") return null;
+  if (typeof p.label !== "string") return null;
+  if (typeof p.color !== "string") return null;
   if (typeof p.deleted !== "boolean") return null;
   if (typeof p.kind !== "string" || !VALID_KINDS.has(p.kind as FeatureKind)) {
     return null;
@@ -85,8 +95,8 @@ function parseFeatureArray(value: unknown): SarFeature[] | null {
 
 /**
  * Parse and validate an untrusted wire string into a SyncMessage, or null if it
- * is malformed. For features/upsert, invalid individual features are dropped
- * (logged by the caller); the message itself stays valid. Pure.
+ * is malformed. For features/upsert, invalid individual features are dropped;
+ * the message itself stays valid. Pure.
  */
 export function parseMessage(raw: string): SyncMessage | null {
   let parsed: unknown;
