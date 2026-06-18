@@ -4,7 +4,8 @@ import { FeatureStore } from "../src/featureStore.js";
 const ME = { callsign: "Team3-Mike", deviceId: "dev-me" };
 
 function makeStore() {
-  return new FeatureStore({ now: () => 1000, newId: () => "id-1" });
+  let n = 0;
+  return new FeatureStore({ now: () => 1000, newId: () => `id-${++n}` });
 }
 
 describe("FeatureStore create/query", () => {
@@ -32,6 +33,9 @@ describe("FeatureStore create/query", () => {
       label: "",
       color: "",
     });
+    // NOTE: only the positive case is exercised here. There is no public way to
+    // create a deleted feature until remove() exists; Task 7 adds an assertion
+    // that a tombstoned feature is excluded from list().
     expect(store.list()).toHaveLength(1);
   });
 
@@ -46,5 +50,6 @@ describe("FeatureStore create/query", () => {
     const fc = store.toGeoJSON();
     expect(fc.type).toBe("FeatureCollection");
     expect(fc.features).toHaveLength(1);
+    expect(fc.features[0]!.properties.id).toBe("id-1");
   });
 });

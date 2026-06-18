@@ -23,6 +23,18 @@ export interface StoreDeps {
   newId?: () => string;
 }
 
+/**
+ * In-memory store of map features, keyed by feature id.
+ *
+ * Stored features are treated as immutable values: callers MUST NOT mutate a
+ * feature returned by `create`, `list`, or `toGeoJSON` in place. To change a
+ * feature, go through the store's edit methods (added in later tasks), which
+ * produce a new feature object. The store relies on this convention rather than
+ * defensive copying.
+ *
+ * Time and id generation are injected (`StoreDeps`) so behavior is deterministic
+ * in tests.
+ */
 export class FeatureStore {
   private features = new Map<string, SarFeature>();
   private now: () => number;
@@ -54,10 +66,12 @@ export class FeatureStore {
     return f;
   }
 
+  /** All features that have not been tombstoned (deleted). */
   list(): SarFeature[] {
     return [...this.features.values()].filter((f) => !f.properties.deleted);
   }
 
+  /** Export non-deleted features as a GeoJSON FeatureCollection. */
   toGeoJSON(): FeatureCollection {
     return { type: "FeatureCollection", features: this.list() };
   }
