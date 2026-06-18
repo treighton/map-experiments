@@ -22,6 +22,9 @@ export class WebSocketSyncServer {
 
   /** Begin listening. Resolves once listening; rejects on a listen error. */
   start(): Promise<void> {
+    if (this.wss) {
+      return Promise.reject(new Error("WebSocketSyncServer already started"));
+    }
     return new Promise((resolve, reject) => {
       const wss = new WebSocketServer({ port: this.opts.port });
       this.wss = wss;
@@ -33,15 +36,16 @@ export class WebSocketSyncServer {
     });
   }
 
-  /** Stop listening and close all sockets. */
+  /** Stop listening, terminate connected sockets, and close the server. */
   stop(): Promise<void> {
+    const wss = this.wss;
+    this.wss = null;
+    if (!wss) return Promise.resolve();
     return new Promise((resolve) => {
-      if (!this.wss) {
-        resolve();
-        return;
-      }
-      this.wss.close(() => resolve());
-      this.wss = null;
+      // close() stops accepting and waits for sockets to drain; terminate open
+      // client sockets first so it cannot hang on still-connected clients.
+      for (const socket of wss.clients) socket.terminate();
+      wss.close(() => resolve());
     });
   }
 }
