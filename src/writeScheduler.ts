@@ -4,6 +4,8 @@ export interface SchedulerDeps {
   setTimer: (fn: () => void, ms: number) => TimerHandle;
   clearTimer: (h: TimerHandle) => void;
   flushFn: (ids: readonly string[]) => void | Promise<void>;
+  /** Called if flushFn rejects. Defaults to console.error. */
+  onError?: (err: unknown, ids: readonly string[]) => void;
   delayMs?: number;
   maxBatch?: number;
 }
@@ -19,6 +21,7 @@ export class WriteScheduler {
   private readonly setTimer: SchedulerDeps["setTimer"];
   private readonly clearTimer: SchedulerDeps["clearTimer"];
   private readonly flushFn: SchedulerDeps["flushFn"];
+  private readonly onError: (err: unknown, ids: readonly string[]) => void;
   private readonly delayMs: number;
   private readonly maxBatch: number;
 
@@ -26,10 +29,15 @@ export class WriteScheduler {
     this.setTimer = deps.setTimer;
     this.clearTimer = deps.clearTimer;
     this.flushFn = deps.flushFn;
+    this.onError =
+      deps.onError ??
+      ((err, ids) =>
+        console.error("WriteScheduler flush failed for ids", ids, err));
     this.delayMs = deps.delayMs ?? 200;
     this.maxBatch = deps.maxBatch ?? 500;
   }
 
+  /** Number of ids waiting for the next flush. */
   get pending(): number {
     return this.dirty.size;
   }
@@ -37,7 +45,7 @@ export class WriteScheduler {
   markDirty(id: string): void {
     this.dirty.add(id);
     if (this.dirty.size >= this.maxBatch) {
-      this.flush();
+      this.flush(); // flush() cancels any armed timer
       return;
     }
     this.arm();
@@ -48,9 +56,10 @@ export class WriteScheduler {
     if (this.dirty.size === 0) return;
     const ids = [...this.dirty];
     this.dirty.clear();
-    void this.flushFn(ids);
+    Promise.resolve(this.flushFn(ids)).catch((err) => this.onError(err, ids));
   }
 
+  /** (Re)arm the trailing-debounce timer, cancelling any previously-armed one. */
   private arm(): void {
     this.cancelTimer();
     this.timer = this.setTimer(() => {

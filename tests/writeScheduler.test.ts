@@ -104,4 +104,35 @@ describe("WriteScheduler", () => {
     scheduler.flush();
     expect(scheduler.pending).toBe(0);
   });
+
+  it("maxBatch=1 flushes every single markDirty immediately with no timer", () => {
+    const flushed: string[][] = [];
+    const { scheduler, timer } = makeScheduler(flushed, 1);
+    scheduler.markDirty("a");
+    expect(flushed).toEqual([["a"]]);
+    expect(timer.armed).toBe(0);
+    scheduler.markDirty("b");
+    expect(flushed).toEqual([["a"], ["b"]]);
+  });
+
+  it("routes a rejecting flushFn to onError instead of swallowing it", async () => {
+    const timer = new FakeTimer();
+    const errors: { err: unknown; ids: readonly string[] }[] = [];
+    const scheduler = new WriteScheduler({
+      setTimer: timer.setTimer,
+      clearTimer: timer.clearTimer,
+      flushFn: () => Promise.reject(new Error("write failed")),
+      onError: (err, ids) => errors.push({ err, ids }),
+      delayMs: 200,
+      maxBatch: 500,
+    });
+    scheduler.markDirty("a");
+    scheduler.flush();
+    // allow the rejected promise's .catch microtask to run
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(errors).toHaveLength(1);
+    expect(errors[0]!.ids).toEqual(["a"]);
+    expect((errors[0]!.err as Error).message).toBe("write failed");
+  });
 });
