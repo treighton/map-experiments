@@ -67,4 +67,41 @@ describe("SyncClient connect", () => {
     expect(clientStore.getRaw("srv-1")?.properties.label).toBe("on-server");
     client.stop();
   });
+
+  it("resets backoff attempt on a fresh start() after stop()", () => {
+    const timer = new FakeTimer();
+    const clientStore = new FeatureStore({ now: () => 2, newId: () => "c1" });
+    const made: InMemoryConnection[] = [];
+    const connect = (): InMemoryConnection => {
+      const [clientConn, serverConn] = connectionPair();
+      void serverConn;
+      made.push(clientConn);
+      return clientConn;
+    };
+    const client = new SyncClient({
+      store: clientStore,
+      connect,
+      setTimer: timer.setTimer,
+      clearTimer: timer.clearTimer,
+      random: () => 0, // half-jitter floor: delay = capped * 0.5
+      baseDelayMs: 1000,
+      maxDelayMs: 30000,
+    });
+    client.start();
+    // Drive backoff up: disconnect twice without a clean reopen resetting it.
+    made[0]!.close(); // attempt 0 → delay 500, attempt→1
+    expect(timer.lastDelay).toBe(500);
+    timer.fire(); // reconnect (made[1]); open resets attempt to 0
+    made[1]!.close(); // attempt 0 again → delay 500
+    expect(timer.lastDelay).toBe(500);
+    client.stop();
+
+    // Fresh start() must reset attempt to 0 → first disconnect delay is 500 again,
+    // NOT a carried-over larger value.
+    client.start();
+    const idx = made.length - 1;
+    made[idx]!.close();
+    expect(timer.lastDelay).toBe(500);
+    client.stop();
+  });
 });

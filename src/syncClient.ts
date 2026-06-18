@@ -47,6 +47,7 @@ export class SyncClient {
   }
 
   start(): void {
+    this.attempt = 0;
     this.intentionalStop = false;
     this.connectNow();
   }
@@ -73,14 +74,24 @@ export class SyncClient {
     const startOnce = () => {
       if (started) return;
       started = true;
-      this.attempt = 0; // reset backoff on a successful open
+      // NOTE: backoff resets on every successful open, not on a "stable" open.
+      // A connection that flaps (opens then immediately drops) will keep
+      // reconnecting at ~baseDelayMs rather than backing off. Acceptable for v1
+      // (in-memory transport). TODO(real-transport): reset only after the
+      // handshake completes (first inbound message) to protect a flapping peer.
+      this.attempt = 0;
       session.start();
     };
 
     conn.onOpen(startOnce);
     conn.onClose(() => this.onDisconnect());
 
-    // In-memory pairs don't auto-fire onOpen; start now. onOpen covers async opens.
+    // In-memory pairs don't auto-fire onOpen, so start the handshake now.
+    // TODO(real-transport): a real WebSocket is not yet open here, so calling
+    // session.start() immediately would send the digest into a CONNECTING socket
+    // and lose it (and the `started` guard would then swallow the real onOpen).
+    // For an async adapter, drop this immediate call and rely on onOpen, or add
+    // an isOpen() check to the Connection interface.
     startOnce();
   }
 
