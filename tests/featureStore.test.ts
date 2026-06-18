@@ -284,17 +284,17 @@ describe("FeatureStore sync API", () => {
 });
 
 describe("FeatureStore onChange", () => {
-  it("notifies with the new id on create", () => {
+  it("notifies with the new id and local origin on create", () => {
     const store = makeStore();
-    const seen: string[][] = [];
-    store.onChange((ids) => seen.push([...ids]));
+    const seen: [string[], string][] = [];
+    store.onChange((ids, origin) => seen.push([[...ids], origin]));
     const f = store.create(ME, {
       kind: "marker",
       geometry: { type: "Point", coordinates: [1, 2] },
       label: "",
       color: "",
     });
-    expect(seen).toEqual([[f.properties.id]]);
+    expect(seen).toEqual([[[f.properties.id], "local"]]);
   });
 
   it("notifies on update and remove with the feature id", () => {
@@ -312,10 +312,10 @@ describe("FeatureStore onChange", () => {
     expect(seen).toEqual([["id-1"], ["id-1"]]);
   });
 
-  it("notifies applyDelta with the incoming ids", () => {
+  it("notifies applyDelta with the incoming ids and remote origin", () => {
     const store = makeStore();
-    const seen: string[][] = [];
-    store.onChange((ids) => seen.push([...ids]));
+    const seen: [string[], string][] = [];
+    store.onChange((ids, origin) => seen.push([[...ids], origin]));
     store.applyDelta([
       {
         type: "Feature",
@@ -333,7 +333,22 @@ describe("FeatureStore onChange", () => {
         },
       },
     ]);
-    expect(seen).toEqual([["ext"]]);
+    expect(seen).toEqual([[["ext"], "remote"]]);
+  });
+
+  it("tags update and remove as local origin", () => {
+    const store = new FeatureStore({ now: () => 1000, newId: () => "id-1" });
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+    const seen: string[] = [];
+    store.onChange((_ids, origin) => seen.push(origin));
+    store.update(ME, "id-1", { label: "x" });
+    store.remove(ME, "id-1");
+    expect(seen).toEqual(["local", "local"]);
   });
 
   it("listener sees post-mutation state via getRaw", () => {

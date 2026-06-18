@@ -27,7 +27,11 @@ export type EditableFields = Partial<
   }
 >;
 
-export type ChangeListener = (changedIds: readonly string[]) => void;
+export type ChangeOrigin = "local" | "remote";
+export type ChangeListener = (
+  changedIds: readonly string[],
+  origin: ChangeOrigin,
+) => void;
 
 /**
  * In-memory store of map features, keyed by feature id.
@@ -70,7 +74,7 @@ export class FeatureStore {
       },
     };
     this.features.set(f.properties.id, f);
-    this.notify([f.properties.id]);
+    this.notify([f.properties.id], "local");
     return f;
   }
 
@@ -122,7 +126,7 @@ export class FeatureStore {
       },
     };
     this.features.set(id, next);
-    this.notify([id]);
+    this.notify([id], "local");
     return next;
   }
 
@@ -139,7 +143,7 @@ export class FeatureStore {
       },
     };
     this.features.set(id, next);
-    this.notify([id]);
+    this.notify([id], "local");
     return next;
   }
 
@@ -164,7 +168,7 @@ export class FeatureStore {
   applyDelta(incoming: readonly SarFeature[]): void {
     if (incoming.length === 0) return;
     this.features = mergeAll(this.features, incoming);
-    this.notify(incoming.map((f) => f.properties.id));
+    this.notify(incoming.map((f) => f.properties.id), "remote");
   }
 
   /**
@@ -178,6 +182,10 @@ export class FeatureStore {
    * - Listeners are called synchronously and MUST NOT call mutating methods on
    *   this store (create/update/remove/applyDelta); doing so causes reentrant
    *   notification.
+   * - The origin parameter is "local" for mutations initiated on this device
+   *   (create/update/remove) and "remote" for deltas received from peers
+   *   (applyDelta). A sync client should broadcast only when origin === "local"
+   *   to prevent echo loops.
    */
   onChange(listener: ChangeListener): () => void {
     this.listeners.add(listener);
@@ -185,10 +193,10 @@ export class FeatureStore {
   }
 
   /** Notify listeners. One throwing listener must not break others or the store. */
-  private notify(changedIds: readonly string[]): void {
+  private notify(changedIds: readonly string[], origin: ChangeOrigin): void {
     for (const listener of this.listeners) {
       try {
-        listener(changedIds);
+        listener(changedIds, origin);
       } catch (err) {
         console.error("FeatureStore change listener threw:", err);
       }
