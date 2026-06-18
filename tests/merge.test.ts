@@ -82,4 +82,11 @@ describe("mergeAll", () => {
     mergeAll(local, [feat({ id: "f1", updatedAt: 200 })]);
     expect(local.get("f1")!.properties.updatedAt).toBe(100);
   });
+
+  it("resolves duplicate ids within a single incoming batch by LWW", () => {
+    const first = feat({ id: "f1", updatedAt: 100, label: "first" });
+    const second = feat({ id: "f1", updatedAt: 200, label: "second" });
+    const out = mergeAll(new Map(), [first, second]);
+    expect(out.get("f1")!.properties.label).toBe("second");
+  });
 });
