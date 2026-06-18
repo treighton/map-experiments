@@ -210,3 +210,47 @@ describe("IndexedDbPersistence live edits", () => {
     await p2.close();
   });
 });
+
+describe("IndexedDbPersistence write-failure retry", () => {
+  it("re-marks ids dirty when a write transaction fails", async () => {
+    const p = await IndexedDbPersistence.open("sar-test", noopTimerDeps());
+    const store = new FeatureStore({ now: () => 1000, newId: () => "id-1" });
+    p.attach(store);
+    store.create(ME, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      label: "",
+      color: "",
+    });
+
+    // Force the next transaction to fail by patching the underlying db handle.
+    const handle = p as unknown as {
+      db: { transaction: (...args: unknown[]) => unknown };
+      scheduler: { pending: number };
+    };
+    const realTransaction = handle.db.transaction.bind(handle.db);
+    let failed = false;
+    handle.db.transaction = (...args: unknown[]) => {
+      if (!failed) {
+        failed = true;
+        throw new Error("simulated transaction failure");
+      }
+      return realTransaction(...args);
+    };
+
+    await p.flush(); // triggers writeBatch which throws -> catch re-marks dirty
+    expect(handle.scheduler.pending).toBeGreaterThan(0);
+
+    // Restore and confirm a subsequent flush persists the retried id.
+    handle.db.transaction = realTransaction as never;
+    await p.flush();
+    expect(handle.scheduler.pending).toBe(0);
+    await p.close();
+
+    const p2 = await IndexedDbPersistence.open("sar-test", noopTimerDeps());
+    const reloaded = new FeatureStore({ now: () => 2000, newId: () => "id-x" });
+    await p2.load(reloaded);
+    expect(reloaded.getRaw("id-1")).toBeDefined();
+    await p2.close();
+  });
+});

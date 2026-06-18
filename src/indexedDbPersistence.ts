@@ -28,6 +28,7 @@ export class IndexedDbPersistence {
   private scheduler: WriteScheduler;
   private boundStore: FeatureStore | null = null;
   private inFlight: Promise<void> = Promise.resolve();
+  private closed = false;
 
   private constructor(
     private db: IDBDatabase,
@@ -101,29 +102,33 @@ export class IndexedDbPersistence {
     for (let i = 0; i < 5 && this.scheduler.pending > 0; i++) {
       await this.flush();
     }
+    this.closed = true;
     this.db.close();
   }
 
   /** Write the current value of each id in one readwrite transaction. */
   private writeBatch(ids: readonly string[]): Promise<void> {
     const store = this.boundStore;
-    if (!store) return Promise.resolve();
+    if (!store || this.closed) return Promise.resolve();
     const run = (async () => {
-      const tx = this.db.transaction(STORE_NAME, "readwrite");
-      const objStore = tx.objectStore(STORE_NAME);
-      for (const id of ids) {
-        const feature = store.getRaw(id);
-        if (feature) objStore.put(feature);
-      }
-      await new Promise<void>((resolve, reject) => {
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => reject(tx.error);
-        tx.onabort = () => reject(tx.error ?? new Error("transaction aborted"));
-      }).catch((err) => {
+      try {
+        const tx = this.db.transaction(STORE_NAME, "readwrite");
+        const objStore = tx.objectStore(STORE_NAME);
+        for (const id of ids) {
+          const feature = store.getRaw(id);
+          if (feature) objStore.put(feature);
+        }
+        await new Promise<void>((resolve, reject) => {
+          tx.oncomplete = () => resolve();
+          tx.onerror = () => reject(tx.error);
+          tx.onabort = () => reject(tx.error ?? new Error("transaction aborted"));
+        });
+      } catch (err) {
         // Re-mark dirty for retry on the next flush; do not drop data.
+        // Catches both synchronous throws from db.transaction() and async tx errors.
         console.error("IndexedDbPersistence write failed, will retry:", err);
         for (const id of ids) this.scheduler.markDirty(id);
-      });
+      }
     })();
     // Chain so flush()/close() await ALL outstanding writes, not just the latest.
     // (Single-promise tracking would miss an earlier batch still in flight.)
