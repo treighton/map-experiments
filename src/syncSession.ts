@@ -1,6 +1,12 @@
 import type { FeatureStore, ChangeOrigin } from "./featureStore.js";
 import type { Connection } from "./connection.js";
 import { parseMessage, idsNeeded, type SyncMessage } from "./syncProtocol.js";
+import type { SarFeature } from "./types.js";
+
+export interface SyncSessionOptions {
+  /** Called after an inbound features/upsert is applied (server uses this to relay). */
+  onInbound?: (features: SarFeature[]) => void;
+}
 
 /**
  * Drives the sync protocol over one Connection against one FeatureStore.
@@ -10,11 +16,14 @@ import { parseMessage, idsNeeded, type SyncMessage } from "./syncProtocol.js";
 export class SyncSession {
   private stopped = false;
   private offChange: () => void;
+  private onInbound?: (features: SarFeature[]) => void;
 
   constructor(
     private store: FeatureStore,
     private conn: Connection,
+    opts: SyncSessionOptions = {},
   ) {
+    this.onInbound = opts.onInbound;
     this.conn.onMessage((data) => this.handle(data));
     this.offChange = this.store.onChange((ids, origin) =>
       this.onLocalChange(ids, origin),
@@ -24,6 +33,16 @@ export class SyncSession {
   /** Begin the handshake by sending our digest. */
   start(): void {
     this.send({ type: "digest", entries: this.store.digest() });
+  }
+
+  /**
+   * Push features to the peer as an upsert WITHOUT the local-only onChange gate.
+   * Used by the server to forward remote-origin deltas to other clients. No-op if
+   * stopped or empty.
+   */
+  relay(features: readonly SarFeature[]): void {
+    if (this.stopped || features.length === 0) return;
+    this.send({ type: "upsert", features: [...features] });
   }
 
   /** Broadcast only local-origin edits; remote-origin changes are terminal. */
@@ -67,10 +86,12 @@ export class SyncSession {
       }
       case "features": {
         this.store.applyDelta(msg.features);
+        this.onInbound?.(msg.features);
         break;
       }
       case "upsert": {
         this.store.applyDelta(msg.features);
+        this.onInbound?.(msg.features);
         break;
       }
     }
