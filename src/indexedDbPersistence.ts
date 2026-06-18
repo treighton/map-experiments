@@ -81,7 +81,8 @@ export class IndexedDbPersistence {
    */
   attach(store: FeatureStore): () => void {
     this.boundStore = store;
-    const off = store.onChange((ids) => {
+    const off = store.onChange((ids, _origin) => {
+      // Persist both local and remote changes — disk holds the full set.
       for (const id of ids) this.scheduler.markDirty(id);
     });
     return () => {
