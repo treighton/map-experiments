@@ -214,3 +214,79 @@ describe("SyncSession delete + termination", () => {
     expect(storeA.list().some((x) => x.properties.label === "after-a-stopped")).toBe(false);
   });
 });
+
+describe("SyncSession inbound validation", () => {
+  it("drops a poison feature in an inbound upsert without corrupting the store", () => {
+    const [connA, connB] = connectionPair();
+    const storeA = new FeatureStore({ now: () => 1, newId: () => "a1" });
+    const sessionA = new SyncSession(storeA, connA);
+    sessionA.start();
+
+    // Peer B sends a raw upsert containing one valid feature and one poison
+    // feature (non-finite updatedAt — the LWW poison case). The valid one must
+    // apply; the poison one must be dropped; the store stays consistent.
+    const valid = {
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      properties: {
+        id: "good",
+        author: "B",
+        authorDeviceId: "dev-b",
+        createdAt: 10,
+        updatedAt: 10,
+        deleted: false,
+        kind: "marker",
+        label: "ok",
+        color: "",
+      },
+    };
+    const poison = {
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [3, 4] },
+      properties: {
+        id: "bad",
+        author: "B",
+        authorDeviceId: "dev-b",
+        createdAt: 10,
+        updatedAt: Number.NaN, // poison: would corrupt digest/LWW
+        deleted: false,
+        kind: "marker",
+        label: "nope",
+        color: "",
+      },
+    };
+    connB.send(JSON.stringify({ type: "upsert", features: [valid, poison] }));
+
+    // Valid feature applied; poison dropped; digest has no NaN.
+    expect(storeA.getRaw("good")?.properties.label).toBe("ok");
+    expect(storeA.getRaw("bad")).toBeUndefined();
+    const digest = storeA.digest();
+    expect(Object.values(digest).every((ts) => Number.isFinite(ts))).toBe(true);
+  });
+
+  it("ignores a fully-malformed inbound message and keeps applying later valid ones", () => {
+    const [connA, connB] = connectionPair();
+    const storeA = new FeatureStore({ now: () => 1, newId: () => "a1" });
+    new SyncSession(storeA, connA).start();
+
+    connB.send("{ totally broken");
+    // A valid upsert after the broken one still applies — connection survived.
+    const valid = {
+      type: "Feature",
+      geometry: { type: "Point", coordinates: [1, 2] },
+      properties: {
+        id: "later",
+        author: "B",
+        authorDeviceId: "dev-b",
+        createdAt: 5,
+        updatedAt: 5,
+        deleted: false,
+        kind: "marker",
+        label: "survived",
+        color: "",
+      },
+    };
+    connB.send(JSON.stringify({ type: "upsert", features: [valid] }));
+    expect(storeA.getRaw("later")?.properties.label).toBe("survived");
+  });
+});
