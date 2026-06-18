@@ -3,6 +3,7 @@ export interface Connection {
   onMessage(handler: (data: string) => void): void;
   onOpen(handler: () => void): void;
   onClose(handler: () => void): void;
+  isOpen(): boolean;
   close(): void;
 }
 
@@ -52,6 +53,10 @@ class MemoryEndpoint implements InMemoryConnection {
 
   fireOpen(): void {
     for (const h of this.openHandlers) h();
+  }
+
+  isOpen(): boolean {
+    return this.opened && !this.closed;
   }
 
   close(): void {

@@ -63,4 +63,22 @@ describe("connectionPair", () => {
     a.send("ping");
     expect(atA).toEqual(["pong"]);
   });
+
+  it("isOpen() is false before open() and true after", () => {
+    const [a, b] = connectionPair();
+    expect(a.isOpen()).toBe(false);
+    expect(b.isOpen()).toBe(false);
+    a.open();
+    expect(a.isOpen()).toBe(true);
+    expect(b.isOpen()).toBe(true);
+  });
+
+  it("isOpen() is false after close()", () => {
+    const [a, b] = connectionPair();
+    a.open();
+    expect(a.isOpen()).toBe(true);
+    a.close();
+    expect(a.isOpen()).toBe(false);
+    expect(b.isOpen()).toBe(false);
+  });
 });
