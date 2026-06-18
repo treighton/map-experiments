@@ -48,8 +48,10 @@ describe("SyncClient connect", () => {
     // return the other end to the client.
     const connect = (): InMemoryConnection => {
       const [clientConn, serverConn] = connectionPair();
-      const serverSession = new SyncSession(serverStore, serverConn);
-      serverSession.start();
+      // Construct the server-side session so it registers its message handler,
+      // but do NOT call start() — the client's start() drives the symmetric
+      // handshake (server replies with its digest on receiving the client's).
+      new SyncSession(serverStore, serverConn);
       return clientConn;
     };
 

@@ -20,17 +20,6 @@ export interface SyncSessionOptions {
 export class SyncSession {
   private stopped = false;
   private digestSent = false;
-  /**
-   * True if we received the peer's digest before we had ever sent our own. When
-   * this is true, the peer definitely saw our first digest (or we hadn't sent one
-   * yet), so no re-send is needed. When false AND digestSent is true, our first
-   * send may have gone to an empty channel (e.g., SyncClient factory called
-   * serverSession.start() before the client session was wired), so we allow one
-   * additional re-send upon receiving the peer's first digest.
-   */
-  private receivedDigestFirst = false;
-  /** Guards the one-time re-send so we never re-send more than twice total. */
-  private digestResentOnce = false;
   private offChange: () => void;
   private onInbound?: (features: SarFeature[], kind: "features" | "upsert") => void;
 
@@ -52,19 +41,9 @@ export class SyncSession {
   }
 
   private sendDigest(): void {
-    if (!this.digestSent) {
-      // First send — always allowed.
-      this.digestSent = true;
-      this.send({ type: "digest", entries: this.store.digest() });
-      return;
-    }
-    // Already sent. Allow one re-send only if our first send may have been
-    // dropped (peer wasn't listening yet): that is, we sent before receiving
-    // any digest from the peer AND we haven't resent yet.
-    if (!this.receivedDigestFirst && !this.digestResentOnce) {
-      this.digestResentOnce = true;
-      this.send({ type: "digest", entries: this.store.digest() });
-    }
+    if (this.digestSent) return;
+    this.digestSent = true;
+    this.send({ type: "digest", entries: this.store.digest() });
   }
 
   /**
@@ -107,13 +86,10 @@ export class SyncSession {
     }
     switch (msg.type) {
       case "digest": {
-        // Record whether we got the peer's digest before we had sent our own.
-        if (!this.digestSent) this.receivedDigestFirst = true;
         const need = idsNeeded(this.store.digest(), msg.entries);
         if (need.length > 0) this.send({ type: "need", ids: need });
         // Reply symmetrically so a single peer start() drives both directions.
-        // Guarded to at most two sends total: the initial proactive send AND at
-        // most one re-send if that proactive send was lost (peer not yet listening).
+        // Guarded so each session emits its digest at most once (no ping-pong).
         this.sendDigest();
         break;
       }
