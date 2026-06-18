@@ -31,11 +31,13 @@ describe("multi-peer convergence", () => {
     const connectA = () => {
       const [clientConn, serverConn] = connectionPair();
       server.accept(serverConn);
+      clientConn.open();
       return clientConn;
     };
     const connectB = () => {
       const [clientConn, serverConn] = connectionPair();
       server.accept(serverConn);
+      clientConn.open();
       return clientConn;
     };
 

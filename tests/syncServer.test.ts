@@ -11,6 +11,7 @@ const C2 = { callsign: "Team2", deviceId: "dev-2" };
 function connectClient(server: SyncServer, clientStore: FeatureStore) {
   const [clientConn, serverConn] = connectionPair();
   server.accept(serverConn);
+  clientConn.open();
   const session = new SyncSession(clientStore, clientConn);
   session.start();
   return { clientConn, session };

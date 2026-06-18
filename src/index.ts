@@ -31,3 +31,9 @@ export {
 export { SyncSession, type SyncSessionOptions } from "./syncSession.js";
 export { SyncServer } from "./syncServer.js";
 export { SyncClient, type SyncClientDeps } from "./syncClient.js";
+export { BrowserWebSocketConnection } from "./browserWebSocketConnection.js";
+export { NodeWebSocketConnection } from "./nodeWebSocketConnection.js";
+export {
+  WebSocketSyncServer,
+  type WebSocketSyncServerOptions,
+} from "./webSocketSyncServer.js";
