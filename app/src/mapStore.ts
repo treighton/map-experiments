@@ -21,6 +21,6 @@ export function createMapStore(store: FeatureStore): MapStore {
   return {
     features: { subscribe: features.subscribe },
     toGeoJSON: () => store.toGeoJSON(),
-    destroy: off,
+    destroy: () => off(),
   };
 }
