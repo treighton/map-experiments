@@ -65,3 +65,66 @@ describe("SyncSession handshake", () => {
     expect(() => connB.send("{not valid")).not.toThrow();
   });
 });
+
+describe("SyncSession live broadcast", () => {
+  it("propagates a local edit made after the handshake", () => {
+    const [connA, connB] = connectionPair();
+    const storeA = new FeatureStore({ now: () => 1, newId: () => "a1" });
+    const storeB = new FeatureStore({ now: () => 1, newId: () => "b1" });
+    new SyncSession(storeA, connA).start();
+    new SyncSession(storeB, connB).start();
+
+    const f = storeA.create(A, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [5, 5] },
+      label: "live",
+      color: "",
+    });
+    expect(storeB.getRaw(f.properties.id)?.properties.label).toBe("live");
+  });
+
+  it("does not rebroadcast a remote-origin change (no echo loop)", () => {
+    const [connA, connB] = connectionPair();
+    const storeA = new FeatureStore({ now: () => 1, newId: () => "a1" });
+    const storeB = new FeatureStore({ now: () => 1, newId: () => "b1" });
+    new SyncSession(storeA, connA).start();
+    new SyncSession(storeB, connB).start();
+
+    // Wrap connB.send to count messages B emits after handshake.
+    let bSends = 0;
+    const origSend = connB.send.bind(connB);
+    (connB as unknown as { send: (d: string) => void }).send = (d: string) => {
+      bSends++;
+      origSend(d);
+    };
+
+    // A creates live -> B receives it as remote -> B must NOT send anything back.
+    storeA.create(A, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [5, 5] },
+      label: "live",
+      color: "",
+    });
+    expect(bSends).toBe(0);
+  });
+
+  it("stops broadcasting after stop()", () => {
+    const [connA, connB] = connectionPair();
+    const storeA = new FeatureStore({ now: () => 1, newId: () => "a1" });
+    const storeB = new FeatureStore({ now: () => 1, newId: () => "b1" });
+    const sessionA = new SyncSession(storeA, connA);
+    const sessionB = new SyncSession(storeB, connB);
+    sessionA.start();
+    sessionB.start();
+    sessionA.stop();
+
+    storeA.create(A, {
+      kind: "marker",
+      geometry: { type: "Point", coordinates: [5, 5] },
+      label: "after-stop",
+      color: "",
+    });
+    // A stopped broadcasting, so B should not have received it.
+    expect(storeB.list().some((feat) => feat.properties.label === "after-stop")).toBe(false);
+  });
+});

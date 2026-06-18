@@ -1,4 +1,4 @@
-import type { FeatureStore } from "./featureStore.js";
+import type { FeatureStore, ChangeOrigin } from "./featureStore.js";
 import type { Connection } from "./connection.js";
 import { parseMessage, idsNeeded } from "./syncProtocol.js";
 
@@ -8,16 +8,33 @@ import { parseMessage, idsNeeded } from "./syncProtocol.js";
  * features/upsert->applyDelta. Live upsert broadcast is added separately.
  */
 export class SyncSession {
+  private offChange: () => void;
+
   constructor(
     private store: FeatureStore,
     private conn: Connection,
   ) {
     this.conn.onMessage((data) => this.handle(data));
+    this.offChange = this.store.onChange((ids, origin) =>
+      this.onLocalChange(ids, origin),
+    );
   }
 
   /** Begin the handshake by sending our digest. */
   start(): void {
     this.send({ type: "digest", entries: this.store.digest() });
+  }
+
+  /** Broadcast only local-origin edits; remote-origin changes are terminal. */
+  private onLocalChange(ids: readonly string[], origin: ChangeOrigin): void {
+    if (origin !== "local") return;
+    const features = this.store.featuresFor(ids);
+    if (features.length > 0) this.send({ type: "upsert", features });
+  }
+
+  /** Detach the change listener (call when the session ends). */
+  stop(): void {
+    this.offChange();
   }
 
   private send(msg: { type: string; [k: string]: unknown }): void {
